@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+.env
+.env.*
+!.env.example
+ecosystem.config.js
+uploads/
+covers/
+*.log
+.DS_Store
+.vscode/
+.idea/

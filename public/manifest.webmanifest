@@ -1,0 +1,14 @@
+{
+  "name": "Reader",
+  "short_name": "Reader",
+  "description": "Private reading, beautifully typeset",
+  "start_url": "/Reader/",
+  "scope": "/Reader/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fafaf7",
+  "theme_color": "#111111",
+  "icons": [
+    { "src": "/Reader/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
