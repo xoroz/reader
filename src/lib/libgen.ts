@@ -21,19 +21,22 @@ export type LibgenHit = {
   mirror: string;
 };
 
-export async function searchLibgen(query: string, format?: string): Promise<LibgenHit[]> {
+export async function searchLibgen(query: string, format?: string): Promise<{ hits: LibgenHit[]; formatCounts: Record<string, number>; totalRaw: number }> {
   for (const base of MIRRORS) {
     try {
       const url = `${base}/index.php?req=${encodeURIComponent(query)}&res=50`;
       const res = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" }, signal: AbortSignal.timeout(12000) });
       if (!res.ok) continue;
       const html = await res.text();
-      let hits = parseResults(html, base);
-      if (format && format !== "any") hits = hits.filter((h) => h.extension === format);
-      if (hits.length) return hits;
+      const all = parseResults(html, base);
+      if (!all.length) continue;
+      const formatCounts: Record<string, number> = {};
+      for (const h of all) if (h.extension) formatCounts[h.extension] = (formatCounts[h.extension] || 0) + 1;
+      const hits = (format && format !== "any") ? all.filter((h) => h.extension === format) : all;
+      return { hits, formatCounts, totalRaw: all.length };
     } catch {}
   }
-  return [];
+  return { hits: [], formatCounts: {}, totalRaw: 0 };
 }
 
 function strip(s: string): string {
@@ -48,16 +51,87 @@ function strip(s: string): string {
     .trim();
 }
 
-// Strip all attributes from every HTML tag so attribute values (which may contain nested quotes,
-// ampersands, and even leaked ">" characters) never pollute text parsing.
-function stripAttrs(s: string): string {
-  return s.replace(/<([a-zA-Z][a-zA-Z0-9]*)(?:\s+[^>]*)?(\s*\/?)>/g, "<$1$2>");
+// Quote-aware HTML tokenizer: walks the string and produces a list of tokens
+// (text or tagName). Attribute values inside " or ' are ignored for tag detection.
+function tokenize(html: string): Array<{ type: "text" | "tag"; value: string; raw?: string }> {
+  const out: Array<{ type: "text" | "tag"; value: string }> = [];
+  let i = 0;
+  let text = "";
+  const n = html.length;
+  while (i < n) {
+    const c = html[i];
+    if (c !== "<") { text += c; i++; continue; }
+    // Try to parse a tag starting at i
+    let j = i + 1;
+    // Must be a letter or '/' immediately after '<' to be a real tag
+    if (j >= n || !/[a-zA-Z\/!]/.test(html[j])) { text += c; i++; continue; }
+    // Find the matching '>' while respecting quotes
+    let quote: string | null = null;
+    let k = j;
+    while (k < n) {
+      const ch = html[k];
+      if (quote) {
+        if (ch === quote) quote = null;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === ">") {
+        break;
+      }
+      k++;
+    }
+    if (k >= n) { text += c; i++; continue; } // no close — treat as text
+    // Capture the raw tag contents (without angle brackets)
+    const raw = html.slice(j, k);
+    const nameMatch = raw.match(/^\/?([a-zA-Z][a-zA-Z0-9]*)/);
+    if (!nameMatch) { text += html.slice(i, k + 1); i = k + 1; continue; }
+    if (text) { out.push({ type: "text", value: text }); text = ""; }
+    const isClose = raw.startsWith("/");
+    out.push({ type: "tag", value: (isClose ? "/" : "") + nameMatch[1].toLowerCase() });
+    i = k + 1;
+  }
+  if (text) out.push({ type: "text", value: text });
+  return out;
 }
 
 function extractFirstAnchorText(cell: string): string {
-  const s = stripAttrs(cell);
-  const m = s.match(/<a>([\s\S]*?)<\/a>/i);
-  return strip(m ? m[1] : s);
+  const toks = tokenize(cell);
+  let inA = 0;
+  let buf = "";
+  for (const t of toks) {
+    if (t.type === "tag") {
+      if (t.value === "a") inA++;
+      else if (t.value === "/a") {
+        if (inA > 0) { inA--; if (inA === 0 && buf.trim()) break; }
+      }
+    } else if (inA > 0) {
+      buf += t.value;
+    }
+  }
+  if (!buf.trim()) {
+    // Fallback: take text of the whole cell
+    buf = toks.filter((t) => t.type === "text").map((t) => t.value).join(" ");
+  }
+  return buf
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripTextOnly(cell: string): string {
+  const toks = tokenize(cell);
+  return toks
+    .filter((t) => t.type === "text")
+    .map((t) => t.value)
+    .join(" ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function parseResults(html: string, base: string): LibgenHit[] {
@@ -76,14 +150,14 @@ function parseResults(html: string, base: string): LibgenHit[] {
     if (cells.length < 8) continue;
     const title = extractFirstAnchorText(cells[0]).replace(/\s+$/, "").slice(0, 250);
     if (!title || /^\d+$/.test(title)) continue;
-    const author = strip(cells[1]) || undefined;
-    const publisher = strip(cells[2]) || undefined;
-    const year = strip(cells[3]) || undefined;
-    const language = strip(cells[4]) || undefined;
-    const pagesRaw = strip(cells[5]);
+    const author = stripTextOnly(cells[1]) || undefined;
+    const publisher = stripTextOnly(cells[2]) || undefined;
+    const year = stripTextOnly(cells[3]) || undefined;
+    const language = stripTextOnly(cells[4]) || undefined;
+    const pagesRaw = stripTextOnly(cells[5]);
     const pages = pagesRaw && pagesRaw !== "0" ? pagesRaw.split("/")[0].trim() : undefined;
-    const size = strip(cells[6]) || undefined;
-    const extension = strip(cells[7]).toLowerCase() || undefined;
+    const size = stripTextOnly(cells[6]) || undefined;
+    const extension = stripTextOnly(cells[7]).toLowerCase() || undefined;
     if (!extension || !["pdf", "epub", "djvu", "mobi", "azw3", "txt", "fb2"].includes(extension)) continue;
     seen.add(md5);
     hits.push({ md5, title, author, year, pages, language, size, extension, mirror: base });

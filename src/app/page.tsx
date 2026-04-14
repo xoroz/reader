@@ -2,12 +2,18 @@ import Link from "next/link";
 import { q } from "@/lib/db";
 import { currentEmail } from "@/lib/user";
 import LibraryCard from "@/components/LibraryCard";
+import UploadBanner from "@/components/UploadBanner";
 
 export const dynamic = "force-dynamic";
 
 type Row = { id: string; title: string | null; author: string | null; status: string; word_count: number | null; created_at: string; chapter_idx: number | null; cover_path: string | null; chapter_count: number | null };
 
-export default async function Library() {
+export default async function Library({ searchParams }: { searchParams?: Promise<{ new?: string; dup?: string }> }) {
+  const sp = (await searchParams) || {};
+  const newId = sp.new || null;
+  const dupId = sp.dup || null;
+  const highlightId = newId || dupId;
+
   const email = await currentEmail();
   const rows = await q<Row>(
     `SELECT b.id, b.title, b.author, b.status, b.word_count, b.created_at, b.cover_path,
@@ -18,26 +24,29 @@ export default async function Library() {
     [email]
   );
 
+  const dupTitle = dupId ? rows.find((r) => r.id === dupId)?.title ?? null : null;
+  const newTitle = newId ? rows.find((r) => r.id === newId)?.title ?? null : null;
+
   return (
     <main className="app-shell">
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.25rem 1.5rem", maxWidth: 960, margin: "0 auto", width: "100%" }}>
-        <div>
-          <h1 style={{ fontSize: "1.1rem", fontWeight: 600, letterSpacing: "0.01em" }}>Reader</h1>
-          <div style={{ fontSize: "0.72rem", color: "var(--reader-muted)", marginTop: 2 }}>
-            {email} · {rows.length}/10 books
-          </div>
+      <header className="lib-header">
+        <div className="lib-header-title">
+          <h1>Reader</h1>
+          <div className="lib-header-sub">{email} · {rows.length}/10 books</div>
         </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div className="lib-header-actions">
           <Link href="/search" className="btn-ghost">Search</Link>
           <Link href="/upload" className="btn-primary" aria-disabled={rows.length >= 10} style={rows.length >= 10 ? { opacity: 0.4, pointerEvents: "none" } : undefined}>Upload</Link>
           <a href="/Reader/api/auth/logout" className="btn-ghost">Sign out</a>
         </div>
       </header>
+      {newId ? <UploadBanner kind="new" title={newTitle} /> : null}
+      {dupId ? <UploadBanner kind="dup" title={dupTitle} /> : null}
       {rows.length === 0 ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "2rem 1.5rem", minHeight: "70vh" }}>
           <div style={{ fontSize: "4.5rem", lineHeight: 1, marginBottom: "1.5rem" }}>📖</div>
-          <h2 style={{ fontFamily: "var(--reader-serif)", fontSize: "2rem", fontWeight: 600, marginBottom: "0.6rem", color: "var(--reader-fg)" }}>Your library is empty</h2>
-          <p style={{ fontFamily: "var(--reader-serif)", fontSize: "1.15rem", color: "var(--reader-muted)", maxWidth: "30rem", marginBottom: "2rem", lineHeight: 1.5 }}>
+          <h2 style={{ fontSize: "2rem", fontWeight: 600, marginBottom: "0.6rem", color: "var(--reader-fg)" }}>Your library is empty</h2>
+          <p style={{ fontSize: "1.15rem", color: "var(--reader-muted)", maxWidth: "30rem", marginBottom: "2rem", lineHeight: 1.5 }}>
             Upload a book and it will be extracted, cleaned up by AI, and rendered for comfortable reading. PDF, EPUB, DOCX, TXT, or Markdown.
           </p>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", justifyContent: "center" }}>
@@ -58,6 +67,7 @@ export default async function Library() {
               chapterIdx={r.chapter_idx}
               chapterCount={r.chapter_count}
               hasCover={!!r.cover_path}
+              highlight={r.id === highlightId ? (newId ? "new" : "dup") : null}
             />
           ))}
         </div>

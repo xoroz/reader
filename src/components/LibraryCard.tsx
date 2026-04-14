@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const BP = process.env.NEXT_PUBLIC_BASE_PATH || "/Reader";
 
@@ -9,19 +9,26 @@ function formatAuthor(author: string | null): string {
   if (!author) return "";
   const a = author.replace(/\s+/g, " ").trim();
   if (a.length <= 60) return a;
-  // Split on common separators
   const parts = a.split(/\s*[,;&]\s*| and /i).map((s) => s.trim()).filter(Boolean);
   if (parts.length <= 2) return a.slice(0, 57) + "…";
   return `${parts[0]} · ${parts.length - 1} more`;
 }
 
-export default function LibraryCard({ id, title, author, status, wordCount, chapterIdx, chapterCount, hasCover }: {
+export default function LibraryCard({ id, title, author, status, wordCount, chapterIdx, chapterCount, hasCover, highlight }: {
   id: string; title: string | null; author: string | null; status: string; wordCount: number | null;
   chapterIdx: number | null; chapterCount: number | null; hasCover: boolean;
+  highlight?: "new" | "dup" | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [coverOk, setCoverOk] = useState(hasCover);
+  const ref = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    if (highlight && ref.current) {
+      ref.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlight]);
 
   async function onDelete(e: React.MouseEvent) {
     e.preventDefault(); e.stopPropagation();
@@ -40,7 +47,36 @@ export default function LibraryCard({ id, title, author, status, wordCount, chap
   const ready = status === "ready";
 
   return (
-    <Link href={`/book/${id}`} className="lib-card" style={{ opacity: busy ? 0.5 : 1 }}>
+    <Link
+      ref={ref}
+      href={`/book/${id}`}
+      className="lib-card"
+      data-highlight={highlight || undefined}
+      style={{
+        opacity: busy ? 0.5 : 1,
+        ...(highlight
+          ? {
+              outline: `2px solid var(${highlight === "new" ? "--m3-primary" : "--m3-warning"})`,
+              outlineOffset: 4,
+              boxShadow: `0 0 0 8px color-mix(in srgb, var(${highlight === "new" ? "--m3-primary" : "--m3-warning"}) 15%, transparent)`,
+            }
+          : {}),
+      }}
+    >
+      {highlight ? (
+        <span
+          className={`m3-badge ${highlight === "new" ? "" : "m3-badge-warn"}`}
+          style={{
+            position: "absolute",
+            top: 10,
+            left: 10,
+            zIndex: 3,
+            boxShadow: "var(--m3-elev-2)",
+          }}
+        >
+          {highlight === "new" ? "New" : "Already in library"}
+        </span>
+      ) : null}
       <button className="lib-del" onClick={onDelete} disabled={busy} aria-label="Delete book">×</button>
       <div className="lib-cover">
         {coverOk ? (
@@ -69,7 +105,7 @@ export default function LibraryCard({ id, title, author, status, wordCount, chap
             </>
           ) : (
             <div className="lib-meta">
-              <span style={{ color: status === "failed" ? "#b91c1c" : "var(--reader-muted)", fontStyle: "italic" }}>{status}…</span>
+              <span style={{ color: status === "failed" ? "var(--m3-error)" : "var(--m3-on-surface-variant)", fontStyle: "italic" }}>{status}…</span>
             </div>
           )}
         </div>

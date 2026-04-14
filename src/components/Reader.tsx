@@ -32,6 +32,8 @@ export default function Reader({
   const [ttsOn, setTtsOn] = useState(false);
   const [activePara, setActivePara] = useState<number | null>(null);
   const [activeFrac, setActiveFrac] = useState<number>(0);
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const chromeTimerRef = useRef<number | null>(null);
   const columnRef = useRef<HTMLDivElement>(null);
   const paragraphIdxRef = useRef<number>(initialProgress.paragraph_idx || 0);
   const pendingRestoreRef = useRef<number | null>(initialProgress.paragraph_idx > 0 ? initialProgress.paragraph_idx : null);
@@ -66,6 +68,24 @@ export default function Reader({
     window.addEventListener("resize", computePages);
     return () => { ro.disconnect(); window.removeEventListener("resize", computePages); };
   }, [computePages, chapterIdx, prefs]);
+
+  // Auto-hide top+bottom chrome after idle; wake on any interaction.
+  const wakeChrome = useCallback(() => {
+    setChromeVisible(true);
+    if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
+    chromeTimerRef.current = window.setTimeout(() => {
+      if (!sheetOpen && !tocOpen) setChromeVisible(false);
+    }, 2800);
+  }, [sheetOpen, tocOpen]);
+  useEffect(() => {
+    wakeChrome();
+    const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart", "wheel", "mousemove"];
+    events.forEach((e) => window.addEventListener(e, wakeChrome as any, { passive: true } as any));
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, wakeChrome as any));
+      if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
+    };
+  }, [wakeChrome]);
 
   useEffect(() => {
     if (prefs.mode !== "paginated") return;
@@ -215,7 +235,7 @@ export default function Reader({
 
   return (
     <div className="reader-stage" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-      <div className="top-chrome">
+      <div className={`top-chrome${chromeVisible ? "" : " chrome-hidden"}`}>
         <a href={BP} className="chrome-btn" title="Library">←</a>
         <div style={{ flex: 1, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           <span style={{ fontWeight: 500, color: "var(--reader-fg)" }}>{title || "Untitled"}</span>
@@ -234,7 +254,7 @@ export default function Reader({
           <p key={i} data-p-idx={i} className={ttsOn && activePara === i ? "tts-para-active" : undefined}>
             {p}
             {ttsOn && activePara === i ? (
-              <span className="tts-para-progress" aria-hidden style={{ transform: `scaleX(${activeFrac})` }} />
+              <span className="tts-para-progress" aria-hidden style={{ ["--frac" as any]: activeFrac.toFixed(3) }} />
             ) : null}
           </p>
         ))}
@@ -252,7 +272,7 @@ export default function Reader({
         </>
       ) : null}
 
-      <div className="bottom-chrome">
+      <div className={`bottom-chrome${chromeVisible ? "" : " chrome-hidden"}`}>
         <span>Ch {chapterIdx + 1}/{chapters.length}</span>
         {prefs.mode === "paginated" ? <><span style={{ margin: "0 1rem" }}>·</span><span>page {pageIdx + 1} / {pageCount}</span></> : null}
         <span style={{ margin: "0 1rem" }}>·</span>

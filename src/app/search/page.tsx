@@ -11,6 +11,8 @@ export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [fmt, setFmt] = useState<"epub" | "pdf" | "any">("epub");
   const [hits, setHits] = useState<Hit[]>([]);
+  const [formatCounts, setFormatCounts] = useState<Record<string, number>>({});
+  const [totalRaw, setTotalRaw] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [downloading, setDownloading] = useState<string>("");
@@ -26,7 +28,9 @@ export default function SearchPage() {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Search failed");
       setHits(body.hits || []);
-      if (!body.hits?.length && (body.note || body.error)) setError(body.note || body.error);
+      setFormatCounts(body.formatCounts || {});
+      setTotalRaw(body.totalRaw || 0);
+      if (!body.hits?.length && body.totalRaw === 0 && (body.note || body.error)) setError(body.note || body.error);
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
@@ -119,7 +123,7 @@ export default function SearchPage() {
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
-                  fontFamily: "var(--reader-serif)", fontSize: "1.02rem", fontWeight: 500,
+                  fontSize: "1.02rem", fontWeight: 500,
                   lineHeight: 1.3, color: "var(--reader-fg)",
                   display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
                 }}>{h.title}</div>
@@ -146,8 +150,31 @@ export default function SearchPage() {
             </div>
           );
         })}
-        {!busy && hits.length === 0 && query && !error ? (
-          <p style={{ color: "var(--reader-muted)", textAlign: "center", padding: "3rem 0", fontFamily: "var(--reader-serif)", fontStyle: "italic" }}>
+        {!busy && hits.length === 0 && query && !error && totalRaw > 0 ? (
+          <div style={{ textAlign: "center", padding: "2.5rem 1rem", color: "var(--reader-muted)" }}>
+            <p style={{ fontSize: "1.05rem", marginBottom: "0.8rem" }}>
+              No <strong>{fmt.toUpperCase()}</strong> for &ldquo;{query}&rdquo;.
+            </p>
+            <p style={{ fontSize: "0.9rem", marginBottom: "1rem" }}>
+              LibGen has {totalRaw} result{totalRaw === 1 ? "" : "s"} in other formats:
+            </p>
+            <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", flexWrap: "wrap" }}>
+              {Object.entries(formatCounts)
+                .filter(([k]) => k !== fmt)
+                .sort((a, b) => b[1] - a[1])
+                .map(([k, n]) => (
+                  <button key={k} className="btn-ghost" onClick={() => { setFmt(k as any); setTimeout(() => doSearch({ preventDefault: () => {} } as any), 0); }}>
+                    {k.toUpperCase()} · {n}
+                  </button>
+                ))}
+              <button className="btn-ghost" onClick={() => { setFmt("any"); setTimeout(() => doSearch({ preventDefault: () => {} } as any), 0); }}>
+                Any format
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {!busy && hits.length === 0 && query && !error && totalRaw === 0 ? (
+          <p style={{ color: "var(--reader-muted)", textAlign: "center", padding: "3rem 0", fontStyle: "italic" }}>
             No results for &ldquo;{query}&rdquo;.
           </p>
         ) : null}
