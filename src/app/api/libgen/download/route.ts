@@ -6,6 +6,7 @@ import { q } from "@/lib/db";
 import { currentEmail } from "@/lib/user";
 import { resolveDownloadUrls, downloadWithFallback } from "@/lib/libgen";
 import { extract } from "@/lib/extract";
+import { resumeExtractForBook } from "@/lib/resume";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,19 +79,9 @@ export async function POST(req: NextRequest) {
       });
       console.log("[Reader] libgen download ok", { md5, id, bytes: saved.bytes, ms: Date.now() - t0, host: new URL(saved.url).hostname });
       const filePath = path.join(dir, saved.filename);
-      await q(`UPDATE books SET source_filename = $2, source_path = $3, status = 'extracting', status_detail = 'Extracting', progress_pct = 50 WHERE id = $1`,
+      await q(`UPDATE books SET source_filename = $2, source_path = $3 WHERE id = $1`,
         [id, saved.filename, filePath]);
-      const out = await extract(filePath, saved.filename, undefined);
-      await q(`UPDATE books SET title = COALESCE($2, title), author = COALESCE($3, author), word_count = $4, source_kind = $5, cover_path = $6 WHERE id = $1`,
-        [id, out.title || null, out.author || null, out.wordCount, out.kind, out.coverPath || null]);
-      for (let i = 0; i < out.chapters.length; i++) {
-        const c = out.chapters[i];
-        const text = c.paragraphs.join("\n\n");
-        await q(`INSERT INTO chapters (book_id, idx, title, text, word_count) VALUES ($1,$2,$3,$4,$5)
-                 ON CONFLICT (book_id, idx) DO UPDATE SET title = EXCLUDED.title, text = EXCLUDED.text, word_count = EXCLUDED.word_count`,
-          [id, i, c.title || null, text, (text.match(/\S+/g) || []).length]);
-      }
-      await q(`UPDATE books SET status = 'ready', error = NULL WHERE id = $1`, [id]);
+      await resumeExtractForBook(id);
     } catch (e: any) {
       console.error("[Reader] libgen extract failed:", e);
       await q(`UPDATE books SET status = 'failed', error = $2 WHERE id = $1`, [id, String(e.message || e).slice(0, 500)]);
