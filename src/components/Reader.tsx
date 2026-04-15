@@ -250,7 +250,35 @@ export default function Reader({
 
       <div ref={columnRef} className={prefs.mode === "paginated" ? "reader-column" : "reader-scroll"} aria-label="reader">
         {chapter.title ? <h2>{chapter.title}</h2> : null}
-        {paragraphs.map((p, i) => (
+        {(/^(table of )?contents?$/i.test(chapter.title || "")) ? (
+          <ul className="reader-toc">
+            {paragraphs.flatMap((para, i) => {
+              const lines = para.split(/\n+|\s\u2022\s|(?<=\.)\s+(?=[A-Z0-9])/).map(l => l.trim()).filter(Boolean);
+              return lines.map((line, j) => {
+                const cleaned = line.replace(/\s*\.{2,}\s*\d+\s*$/, "").replace(/\s+\d+\s*$/, "").trim();
+                const target = chapters.findIndex((c, idx) => idx > chapterIdx && c.title && cleaned.toLowerCase().includes(c.title.toLowerCase().replace(/^chapter\s+\d+[:.\s]*/i, "").trim().slice(0, 40)));
+                const onClick = () => {
+                  if (target >= 0) {
+                    pendingRestoreRef.current = null;
+                    paragraphIdxRef.current = 0;
+                    setChapterIdx(target);
+                    setPageIdx(0);
+                    columnRef.current?.scrollTo({ top: 0 });
+                  }
+                };
+                return (
+                  <li key={`${i}-${j}`} data-p-idx={i}>
+                    {target >= 0 ? (
+                      <a href="#" onClick={(e) => { e.preventDefault(); onClick(); }}>{cleaned || line}</a>
+                    ) : (
+                      <span>{cleaned || line}</span>
+                    )}
+                  </li>
+                );
+              });
+            })}
+          </ul>
+        ) : paragraphs.map((p, i) => (
           <p key={i} data-p-idx={i} className={ttsOn && activePara === i ? "tts-para-active" : undefined}>
             {p}
             {ttsOn && activePara === i ? (
@@ -273,10 +301,28 @@ export default function Reader({
       ) : null}
 
       <div className={`bottom-chrome${chromeVisible ? "" : " chrome-hidden"}`}>
-        <span>Ch {chapterIdx + 1}/{chapters.length}</span>
-        {prefs.mode === "paginated" ? <><span style={{ margin: "0 1rem" }}>·</span><span>page {pageIdx + 1} / {pageCount}</span></> : null}
-        <span style={{ margin: "0 1rem" }}>·</span>
-        <span>{progressPct}%</span>
+        <button
+          className="chrome-btn"
+          onClick={() => { if (chapterIdx > 0) { setChapterIdx(chapterIdx - 1); setPageIdx(0); columnRef.current?.scrollTo({ top: 0 }); } }}
+          disabled={chapterIdx === 0}
+          title="Previous chapter"
+          aria-label="Previous chapter"
+        >⏮</button>
+        <button className="chrome-btn" onClick={prev} title="Previous page" aria-label="Previous page">‹</button>
+        <div className="bottom-chrome-meta">
+          <span>Ch {chapterIdx + 1}/{chapters.length}</span>
+          {prefs.mode === "paginated" ? <><span style={{ margin: "0 0.5rem" }}>·</span><span>p {pageIdx + 1}/{pageCount}</span></> : null}
+          <span style={{ margin: "0 0.5rem" }}>·</span>
+          <span>{progressPct}%</span>
+        </div>
+        <button className="chrome-btn" onClick={next} title="Next page" aria-label="Next page">›</button>
+        <button
+          className="chrome-btn"
+          onClick={() => { if (chapterIdx + 1 < chapters.length) { setChapterIdx(chapterIdx + 1); setPageIdx(0); columnRef.current?.scrollTo({ top: 0 }); } }}
+          disabled={chapterIdx + 1 >= chapters.length}
+          title="Next chapter"
+          aria-label="Next chapter"
+        >⏭</button>
       </div>
 
       {ttsOn ? (

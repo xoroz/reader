@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { cleanupChunk, splitParagraphs, countWords, normalizeText, dropBoilerplate } from "./ai";
+import { cleanupChunk, splitParagraphs, countWords, normalizeText, dropBoilerplate, dropCopyrightChapters } from "./ai";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 const exec = promisify(execFile);
@@ -129,9 +129,10 @@ async function fromEpub(filePath: string, filename: string, report: ProgressFn):
         const title = (epub.metadata && epub.metadata.title) || filename.replace(/\.[^.]+$/, "");
         const author = epub.metadata && epub.metadata.creator;
         const coverPath = (await tryEpubCover(epub, path.dirname(filePath))) || undefined;
-        const wc = chapters.reduce((s, c) => s + c.paragraphs.reduce((a, p) => a + countWords(p), 0), 0);
+        const cleaned = dropCopyrightChapters(chapters.filter((c) => c.paragraphs.length));
+        const wc = cleaned.reduce((s, c) => s + c.paragraphs.reduce((a, p) => a + countWords(p), 0), 0);
         report("Finalizing", 95);
-        resolve({ title, author, chapters, wordCount: wc, kind: "epub", coverPath });
+        resolve({ title, author, chapters: cleaned, wordCount: wc, kind: "epub", coverPath });
       } catch (e) { reject(e); }
     });
     epub.parse();
@@ -162,7 +163,7 @@ async function cleanupInChunks(rawIn: string, hint: string, report: ProgressFn =
     const out = await cleanupChunk(raw, hint);
     for (const ch of out.chapters) ch.paragraphs = dropBoilerplate(ch.paragraphs.map(normalizeText).filter(Boolean));
     report("Finalizing", 95);
-    return out.chapters;
+    return dropCopyrightChapters(out.chapters.filter((c) => c.paragraphs.length));
   }
   const chunks: string[] = [];
   let i = 0;
@@ -182,8 +183,8 @@ async function cleanupInChunks(rawIn: string, hint: string, report: ProgressFn =
     out.push(...r.chapters);
   }
   for (const ch of out) ch.paragraphs = dropBoilerplate(ch.paragraphs.map(normalizeText).filter(Boolean));
-  // Drop empty chapters that were entirely boilerplate
-  const purged = out.filter((c) => c.paragraphs.length);
+  // Drop empty chapters that were entirely boilerplate, then drop copyright/legal chapters
+  const purged = dropCopyrightChapters(out.filter((c) => c.paragraphs.length));
   out.length = 0; out.push(...purged);
   report("Finalizing", 95);
   return out;

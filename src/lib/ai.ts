@@ -113,3 +113,27 @@ export function isBoilerplateParagraph(p: string): boolean {
 export function dropBoilerplate(paragraphs: string[]): string[] {
   return paragraphs.filter((p) => !isBoilerplateParagraph(p));
 }
+
+// Chapter-level copyright detection: drops the whole chapter if its title
+// or its body is dominated by copyright/legal/front-matter content.
+export function isCopyrightChapter(ch: { title?: string; paragraphs: string[] }): boolean {
+  const title = (ch.title || "").toLowerCase();
+  if (/copyright|colophon|legal notice|imprint|publisher.{0,3}note|cataloging|cataloguing|publication data|edition notice/.test(title)) return true;
+  const paras = ch.paragraphs || [];
+  if (!paras.length) return false;
+  // Total chars > 4000 implies real chapter — keep
+  const totalChars = paras.reduce((s, p) => s + p.length, 0);
+  if (totalChars > 4000) return false;
+  // Count paragraphs flagged as boilerplate; if ≥60% of them OR ≥4 hits, drop
+  let hits = 0;
+  for (const p of paras) if (isBoilerplateParagraph(p)) hits++;
+  if (hits >= 4) return true;
+  if (hits / paras.length >= 0.6) return true;
+  // Strong single-paragraph signal: lone copyright line
+  if (paras.length <= 3 && /\bcopyright\b|©|all rights reserved|isbn[- ]?[0-9]/i.test(paras.join(" "))) return true;
+  return false;
+}
+
+export function dropCopyrightChapters<T extends { title?: string; paragraphs: string[] }>(chapters: T[]): T[] {
+  return chapters.filter((c) => !isCopyrightChapter(c));
+}
