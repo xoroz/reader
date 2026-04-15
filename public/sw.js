@@ -1,5 +1,5 @@
 // Reader service worker — offline-first for shell & book content
-const VERSION = "reader-v4-20260415-1156";
+const VERSION = "reader-v5-20260415-m3";
 const SHELL_CACHE = `${VERSION}-shell`;
 const BOOK_CACHE = `${VERSION}-books`;
 const BP = "/Reader";

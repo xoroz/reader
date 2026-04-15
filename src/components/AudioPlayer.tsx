@@ -204,7 +204,7 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
       <div className="tts-row">
         <button className="tts-play" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"}>
           {loading ? (
-            <span className="tts-spinner" aria-hidden />
+            <span className="m3-progress-morph" role="progressbar" aria-label="Generating audio..." aria-busy="true" style={{ width: "18px", height: "18px" }} />
           ) : playing ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
           ) : (

@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@import "shared-m3/tokens.css";
+@import "shared-m3/components.css";
+@import "shared-m3/overlay.css";
 @import "./m3-tokens.css";
 @import "./m3-components.css";
 
