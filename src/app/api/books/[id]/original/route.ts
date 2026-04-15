@@ -7,6 +7,8 @@ import { currentEmail } from "@/lib/user";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || "/opt/apps/Reader/uploads");
+
 const MIME: Record<string, string> = {
   pdf: "application/pdf",
   epub: "application/epub+zip",
@@ -31,7 +33,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     [id, email]
   );
   if (!rows.length || !rows[0].source_path) return NextResponse.json({ error: "No original file" }, { status: 404 });
-  const p = rows[0].source_path;
+  const p = path.resolve(rows[0].source_path);
+  // Defense in depth: never serve files outside the configured upload dir, even if the DB was tampered with.
+  if (p !== UPLOAD_DIR && !p.startsWith(UPLOAD_DIR + path.sep)) {
+    return NextResponse.json({ error: "Invalid path" }, { status: 403 });
+  }
   try {
     const buf = await fs.readFile(p);
     const ext = path.extname(p).slice(1).toLowerCase();

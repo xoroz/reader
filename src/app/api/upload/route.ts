@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
           `UPDATE books SET status = 'duplicate', status_detail = 'Already in library', progress_pct = 100, duplicate_of = $2, title_author_key = $3, text_hash = $4 WHERE id = $1`,
           [id, dup[0].id, takKey, textHash]
         );
-        try { await fs.rm(path.dirname(filePath), { recursive: true, force: true }); } catch {}
+        try { await fs.rm(path.dirname(filePath), { recursive: true, force: true }); } catch (e) { console.warn("[Reader] cleanup failed:", path.dirname(filePath), String(e)); }
         await q(`DELETE FROM chapters WHERE book_id = $1`, [id]);
         return;
       }
