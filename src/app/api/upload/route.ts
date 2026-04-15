@@ -127,9 +127,13 @@ export async function POST(req: NextRequest) {
       await q(`UPDATE books SET status = 'ready', status_detail = 'Ready', progress_pct = 100, error = NULL WHERE id = $1`, [id]);
     } catch (e: any) {
       console.error("[Reader] extract failed:", e);
-      await q(`UPDATE books SET status = 'failed', status_detail = 'Failed', error = $2 WHERE id = $1`, [id, String(e.message || e).slice(0, 500)]);
+      await q(`UPDATE books SET status = 'failed', status_detail = 'Failed', error = $2 WHERE id = $1`, [id, String(e.message || e).slice(0, 500)]).catch((dbErr) => {
+        console.error("[Reader] failed to record extract failure:", dbErr);
+      });
     }
-  })();
+  })().catch((err) => {
+    console.error("[Reader] unhandled background task error:", err);
+  });
 
   return NextResponse.json({ id });
 }

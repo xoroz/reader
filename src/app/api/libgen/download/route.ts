@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const { md5, title, author, extension } = body || {};
   if (!md5 || !/^[A-F0-9]{32}$/i.test(md5)) return NextResponse.json({ error: "Invalid md5" }, { status: 400 });
 
-  const counts = await q<{ n: string }>(`SELECT COUNT(*)::text AS n FROM books WHERE owner_email = $1`, [email]);
+  const counts = await q<{ n: string }>(`SELECT COUNT(*)::text AS n FROM books WHERE owner_email = $1 AND duplicate_of IS NULL`, [email]);
   if (Number(counts[0]?.n || 0) >= 10) {
     return NextResponse.json({ error: "Library limit reached (10 books). Delete a book to add another." }, { status: 409 });
   }
@@ -93,9 +93,13 @@ export async function POST(req: NextRequest) {
       await q(`UPDATE books SET status = 'ready', error = NULL WHERE id = $1`, [id]);
     } catch (e: any) {
       console.error("[Reader] libgen extract failed:", e);
-      await q(`UPDATE books SET status = 'failed', error = $2 WHERE id = $1`, [id, String(e.message || e).slice(0, 500)]);
+      await q(`UPDATE books SET status = 'failed', error = $2 WHERE id = $1`, [id, String(e.message || e).slice(0, 500)]).catch((dbErr) => {
+        console.error("[Reader] failed to record libgen failure:", dbErr);
+      });
     }
-  })();
+  })().catch((err) => {
+    console.error("[Reader] unhandled libgen background task error:", err);
+  });
 
   return NextResponse.json({ id });
 }
