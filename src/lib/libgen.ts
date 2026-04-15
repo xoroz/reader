@@ -217,13 +217,14 @@ function parseResults(html: string, base: string): LibgenHit[] {
   return hits;
 }
 
-export async function resolveDownloadUrl(md5: string): Promise<string | null> {
-  const controllers = MIRRORS.map(() => new AbortController());
-  const timers = controllers.map((c) => setTimeout(() => c.abort(), 8000));
-  const attempts = MIRRORS.map(async (base, i) => {
+// Resolve the ads.php GET link for a single mirror. Returns null on failure.
+async function resolveOneMirror(base: string, md5: string, timeoutMs = 8000): Promise<string | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
     const url = `${base}/ads.php?md5=${md5}`;
-    const res = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" }, redirect: "follow", signal: controllers[i].signal });
-    if (!res.ok) throw new Error(`status ${res.status}`);
+    const res = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" }, redirect: "follow", signal: ctrl.signal });
+    if (!res.ok) return null;
     const html = await readCapped(res);
     const get1 = html.match(/<a[^>]+href="([^"]+)"[^>]*>\s*GET\s*<\/a>/i);
     if (get1) return absolute(get1[1], new URL(url));
@@ -231,36 +232,130 @@ export async function resolveDownloadUrl(md5: string): Promise<string | null> {
     if (get2) return new URL(get2[1], url).toString();
     const get3 = html.match(/href="(https?:\/\/[^"]+\.(?:pdf|epub|djvu|mobi|azw3)(?:\?[^"]*)?)"/i);
     if (get3) return get3[1];
-    throw new Error("no GET link");
-  });
-  attempts.forEach((p) => p.catch(() => {}));
-  try {
-    const url = await Promise.any(attempts);
-    controllers.forEach((c) => { try { c.abort(); } catch {} });
-    timers.forEach((t) => clearTimeout(t));
-    return url;
-  } catch {
-    timers.forEach((t) => clearTimeout(t));
     return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
   }
+}
+
+// Backwards-compat: return the first mirror that resolves (race).
+export async function resolveDownloadUrl(md5: string): Promise<string | null> {
+  const attempts = MIRRORS.map((b) => resolveOneMirror(b, md5).then((u) => u || Promise.reject()));
+  attempts.forEach((p) => p.catch(() => {}));
+  try { return await Promise.any(attempts); } catch { return null; }
+}
+
+// Resolve candidate download URLs from every mirror (in parallel, de-duped).
+// Returned in priority order: libgen.la (most reliable observed), .vg, .gl, .bz.
+const DOWNLOAD_MIRROR_ORDER = ["https://libgen.la", "https://libgen.vg", "https://libgen.gl", "https://libgen.bz"];
+export async function resolveDownloadUrls(md5: string): Promise<string[]> {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const results = await Promise.all(DOWNLOAD_MIRROR_ORDER.map((b) => resolveOneMirror(b, md5)));
+  for (const u of results) {
+    if (u && !seen.has(u)) { seen.add(u); urls.push(u); }
+  }
+  return urls;
 }
 
 function absolute(href: string, origin: URL): string {
   try { return new URL(href, origin).toString(); } catch { return href; }
 }
 
-export async function downloadToFile(url: string, dest: string, maxBytes: number): Promise<{ bytes: number; filename: string }> {
-  const fs = await import("node:fs/promises");
+export type DownloadProgress = (info: { bytes: number; total: number | null; pct: number | null }) => void;
+
+// Stream a URL to disk with a stall watchdog. If no bytes arrive for stallMs,
+// aborts the fetch so the caller can try the next mirror.
+// No wall-clock timeout: a slow mirror is OK as long as bytes keep flowing.
+export async function downloadToFile(
+  url: string,
+  dest: string,
+  maxBytes: number,
+  opts?: { onProgress?: DownloadProgress; stallMs?: number; signal?: AbortSignal }
+): Promise<{ bytes: number; filename: string }> {
+  const fsp = await import("node:fs/promises");
   const path = await import("node:path");
-  const res = await fetch(url, { headers: { "User-Agent": UA }, redirect: "follow", signal: AbortSignal.timeout(600000) });
-  if (!res.ok) throw new Error(`download ${res.status}`);
+  const stallMs = opts?.stallMs ?? 20000;
+
+  const ctrl = new AbortController();
+  const linkAbort = () => ctrl.abort(new Error("external abort"));
+  if (opts?.signal) {
+    if (opts.signal.aborted) ctrl.abort();
+    else opts.signal.addEventListener("abort", linkAbort, { once: true });
+  }
+
+  const res = await fetch(url, { headers: { "User-Agent": UA }, redirect: "follow", signal: ctrl.signal });
+  if (!res.ok) { ctrl.abort(); throw new Error(`download ${res.status}`); }
   const cd = res.headers.get("content-disposition") || "";
   const m = cd.match(/filename\*?=["']?(?:UTF-\d'[^']*')?([^";]+)/i);
   let name = m ? decodeURIComponent(m[1]) : path.basename(new URL(url).pathname) || "book";
   name = name.replace(/[^\w.\- ]+/g, "_").slice(0, 180);
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > maxBytes) throw new Error(`File too large: ${buf.length} > ${maxBytes}`);
   const finalPath = path.join(path.dirname(dest), name);
-  await fs.writeFile(finalPath, buf);
-  return { bytes: buf.length, filename: name };
+
+  const totalHeader = Number(res.headers.get("content-length") || "0");
+  const total = totalHeader > 0 ? totalHeader : null;
+  if (total !== null && total > maxBytes) {
+    ctrl.abort();
+    throw new Error(`File too large: ${total} > ${maxBytes}`);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("no response body");
+
+  const fh = await fsp.open(finalPath, "w");
+  let bytes = 0;
+  let stallTimer: NodeJS.Timeout | null = null;
+  const armStall = () => {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      ctrl.abort(new Error(`stalled: no bytes for ${stallMs}ms`));
+    }, stallMs);
+  };
+  armStall();
+  try {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value || value.length === 0) continue;
+      bytes += value.length;
+      if (bytes > maxBytes) { ctrl.abort(); throw new Error(`File too large: ${bytes} > ${maxBytes}`); }
+      await fh.write(value);
+      armStall();
+      if (opts?.onProgress) {
+        const pct = total ? Math.min(100, Math.floor((bytes / total) * 100)) : null;
+        try { opts.onProgress({ bytes, total, pct }); } catch {}
+      }
+    }
+  } finally {
+    if (stallTimer) clearTimeout(stallTimer);
+    await fh.close().catch(() => {});
+    if (opts?.signal) opts.signal.removeEventListener("abort", linkAbort);
+  }
+  return { bytes, filename: name };
+}
+
+// Try each candidate URL in sequence; first one that streams to completion wins.
+// Stalls (20s default without progress) and errors trigger fallback to the next URL.
+export async function downloadWithFallback(
+  urls: string[],
+  dest: string,
+  maxBytes: number,
+  opts?: { onProgress?: DownloadProgress; stallMs?: number; onMirrorStart?: (url: string, i: number, total: number) => void }
+): Promise<{ bytes: number; filename: string; url: string }> {
+  const errors: string[] = [];
+  for (let i = 0; i < urls.length; i++) {
+    const u = urls[i];
+    try {
+      opts?.onMirrorStart?.(u, i, urls.length);
+      const r = await downloadToFile(u, dest, maxBytes, { onProgress: opts?.onProgress, stallMs: opts?.stallMs });
+      return { ...r, url: u };
+    } catch (e: any) {
+      errors.push(`${new URL(u).hostname}: ${String(e?.message || e).slice(0, 120)}`);
+      continue;
+    }
+  }
+  throw new Error(`All mirrors failed: ${errors.join("; ")}`);
 }

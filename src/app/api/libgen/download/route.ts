@@ -4,7 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { q } from "@/lib/db";
 import { currentEmail } from "@/lib/user";
-import { resolveDownloadUrl, downloadToFile } from "@/lib/libgen";
+import { resolveDownloadUrls, downloadWithFallback } from "@/lib/libgen";
 import { extract } from "@/lib/extract";
 
 export const runtime = "nodejs";
@@ -46,13 +46,37 @@ export async function POST(req: NextRequest) {
       q(`UPDATE books SET status_detail = $2, progress_pct = $3 WHERE id = $1`, [id, stage, pct]).catch(() => {});
     try {
       console.log("[Reader] libgen resolving", { md5, id });
-      const url = await resolveDownloadUrl(md5.toUpperCase());
-      if (!url) throw new Error("Could not resolve download URL from any mirror");
-      console.log("[Reader] libgen download starting", { md5, id, url: url.slice(0, 120) });
-      await setProgress("Downloading", 10);
+      const urls = await resolveDownloadUrls(md5.toUpperCase());
+      if (!urls.length) throw new Error("Could not resolve download URL from any mirror");
+      console.log("[Reader] libgen mirrors resolved", { md5, id, count: urls.length, hosts: urls.map((u) => new URL(u).hostname) });
+      await setProgress("Downloading 0%", 10);
       const t0 = Date.now();
-      const saved = await downloadToFile(url, placeholder, MAX_BYTES);
-      console.log("[Reader] libgen download ok", { md5, id, bytes: saved.bytes, ms: Date.now() - t0 });
+      // Throttle DB writes to at most ~once a second and only on integer % change.
+      let lastPctWritten = -1;
+      let lastWriteAt = 0;
+      const saved = await downloadWithFallback(urls, placeholder, MAX_BYTES, {
+        stallMs: 20000,
+        onMirrorStart: (u, i, total) => {
+          console.log("[Reader] libgen trying mirror", { md5, id, host: new URL(u).hostname, i: i + 1, of: total });
+          setProgress(`Downloading from ${new URL(u).hostname}`, 10);
+        },
+        onProgress: ({ pct, bytes, total }) => {
+          // Map 0..100% of the download into the 10..49% overall progress band.
+          const overall = pct === null
+            ? 10 + Math.min(35, Math.floor(bytes / (1024 * 1024)) * 2)
+            : 10 + Math.floor((pct * 39) / 100);
+          const now = Date.now();
+          if (overall !== lastPctWritten && now - lastWriteAt > 800) {
+            lastPctWritten = overall;
+            lastWriteAt = now;
+            const label = pct === null
+              ? `Downloading (${(bytes / (1024 * 1024)).toFixed(1)} MB)`
+              : `Downloading ${pct}%${total ? ` of ${(total / (1024 * 1024)).toFixed(1)} MB` : ""}`;
+            setProgress(label, overall);
+          }
+        },
+      });
+      console.log("[Reader] libgen download ok", { md5, id, bytes: saved.bytes, ms: Date.now() - t0, host: new URL(saved.url).hostname });
       const filePath = path.join(dir, saved.filename);
       await q(`UPDATE books SET source_filename = $2, source_path = $3, status = 'extracting', status_detail = 'Extracting', progress_pct = 50 WHERE id = $1`,
         [id, saved.filename, filePath]);
