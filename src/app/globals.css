@@ -96,7 +96,8 @@ body[data-theme="dark"] .app-shell {
   flex-wrap: wrap;
 }
 .lib-header-title { min-width: 0; flex: 1 1 auto; }
-.lib-header-title h1 {
+/* Canonical .m3-brand-title (from shared-m3/overlay.css) wins — no local override here */
+.lib-header-title h1:not(.m3-brand-title) {
   font: var(--m3-headline-sm);
   letter-spacing: -0.01em;
   color: var(--m3-on-surface);
@@ -115,7 +116,7 @@ body[data-theme="dark"] .app-shell {
 }
 @media (max-width: 480px) {
   .lib-header { padding: var(--m3-space-3) var(--m3-space-4) var(--m3-space-2); }
-  .lib-header-title h1 { font: var(--m3-title-lg); }
+  .lib-header-title h1:not(.m3-brand-title) { font: var(--m3-title-lg); }
 }
 
 /* Library grid + cards */
