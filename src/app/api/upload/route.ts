@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
           `UPDATE books SET status = 'duplicate', status_detail = 'Already in library', progress_pct = 100, duplicate_of = $2, title_author_key = $3, text_hash = $4 WHERE id = $1`,
           [id, dup[0].id, takKey, textHash]
         );
-        try { await fs.rm(path.dirname(filePath), { recursive: true, force: true }); } catch {}
+        try { await fs.rm(path.dirname(filePath), { recursive: true, force: true }); } catch (e) { console.warn("[Reader] cleanup failed:", path.dirname(filePath), String(e)); }
         await q(`DELETE FROM chapters WHERE book_id = $1`, [id]);
         return;
       }
@@ -127,9 +127,13 @@ export async function POST(req: NextRequest) {
       await q(`UPDATE books SET status = 'ready', status_detail = 'Ready', progress_pct = 100, error = NULL WHERE id = $1`, [id]);
     } catch (e: any) {
       console.error("[Reader] extract failed:", e);
-      await q(`UPDATE books SET status = 'failed', status_detail = 'Failed', error = $2 WHERE id = $1`, [id, String(e.message || e).slice(0, 500)]);
+      await q(`UPDATE books SET status = 'failed', status_detail = 'Failed', error = $2 WHERE id = $1`, [id, String(e.message || e).slice(0, 500)]).catch((dbErr) => {
+        console.error("[Reader] failed to record extract failure:", dbErr);
+      });
     }
-  })();
+  })().catch((err) => {
+    console.error("[Reader] unhandled background task error:", err);
+  });
 
   return NextResponse.json({ id });
 }

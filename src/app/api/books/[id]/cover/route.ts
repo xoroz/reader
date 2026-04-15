@@ -7,12 +7,18 @@ import { currentEmail } from "@/lib/user";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || "/opt/apps/Reader/uploads");
+
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const email = await currentEmail();
   const rows = await q<{ cover_path: string | null }>(`SELECT cover_path FROM books WHERE id = $1 AND owner_email = $2`, [id, email]);
   if (!rows.length || !rows[0].cover_path) return NextResponse.json({ error: "No cover" }, { status: 404 });
-  const p = rows[0].cover_path;
+  const p = path.resolve(rows[0].cover_path);
+  // Defense in depth: never serve files outside the configured upload dir, even if the DB was tampered with.
+  if (p !== UPLOAD_DIR && !p.startsWith(UPLOAD_DIR + path.sep)) {
+    return NextResponse.json({ error: "Invalid path" }, { status: 403 });
+  }
   try {
     const buf = await fs.readFile(p);
     const ext = path.extname(p).slice(1).toLowerCase();

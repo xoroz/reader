@@ -31,7 +31,7 @@ Rules:
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${key}`,
-      "HTTP-Referer": "https://apps.lukasz.com/Reader",
+      "HTTP-Referer": process.env.OPENROUTER_REFERER || "https://apps.lukasz.com/Reader",
       "X-Title": "Reader",
     },
     body: JSON.stringify({
@@ -47,12 +47,21 @@ Rules:
   if (!res.ok) throw new Error(`cleanup ${res.status}: ${await res.text()}`);
   const json: any = await res.json();
   const content = json.choices?.[0]?.message?.content || "{}";
+  const fallback = { chapters: [{ paragraphs: splitParagraphs(rawText) }] };
   try {
     const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed.chapters)) return { chapters: [{ paragraphs: splitParagraphs(rawText) }] };
-    return parsed;
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.chapters)) return fallback;
+    // Validate shape: each chapter must have a paragraphs array of strings; drop bad entries.
+    const chapters: Array<{ title?: string; paragraphs: string[] }> = [];
+    for (const ch of parsed.chapters) {
+      if (!ch || typeof ch !== "object" || !Array.isArray(ch.paragraphs)) continue;
+      const paragraphs = ch.paragraphs.filter((p: unknown): p is string => typeof p === "string");
+      if (!paragraphs.length) continue;
+      chapters.push(typeof ch.title === "string" ? { title: ch.title, paragraphs } : { paragraphs });
+    }
+    return chapters.length ? { chapters } : fallback;
   } catch {
-    return { chapters: [{ paragraphs: splitParagraphs(rawText) }] };
+    return fallback;
   }
 }
 
