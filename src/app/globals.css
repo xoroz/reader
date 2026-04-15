@@ -687,3 +687,51 @@ button, input, select, textarea { font-family: var(--reader-sans); }
 }
 .lib-card:hover .lib-dl, .lib-card:focus-within .lib-dl { opacity: 1; }
 .lib-dl:hover { background: var(--m3-primary); color: var(--m3-on-primary); }
+
+/* Bottom chrome — nav layout (prev-ch, prev, meta, next, next-ch) */
+.bottom-chrome { justify-content: space-between !important; gap: var(--m3-space-1); }
+.bottom-chrome .bottom-chrome-meta {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.8rem; color: var(--m3-on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bottom-chrome .chrome-btn[disabled] { opacity: 0.3; pointer-events: none; }
+.bottom-chrome .chrome-btn { min-width: 2.5rem; min-height: 2.5rem; font-size: 1.25rem; }
+
+/* Library header — left-align brand, compact (override canonical .hero centering) */
+.lib-header .hero.lib-header-title {
+  text-align: left !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  display: block !important;
+}
+.lib-header .lib-header-title .m3-brand-title {
+  text-align: left !important;
+  font-size: 1.1rem !important;
+  letter-spacing: 0.18em !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1.2 !important;
+}
+.lib-header .lib-header-sub { margin-top: 2px !important; }
+
+/* Reader: clickable Table of Contents list */
+.reader-toc {
+  list-style: none; padding: 0; margin: 0;
+  font-family: var(--reader-serif);
+}
+.reader-toc li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--reader-fg) 8%, transparent);
+}
+.reader-toc a {
+  color: var(--reader-fg);
+  text-decoration: none;
+  display: block;
+  cursor: pointer;
+}
+.reader-toc a:hover { color: var(--m3-primary); text-decoration: underline; }
+.reader-toc li > span { color: var(--reader-muted); }
