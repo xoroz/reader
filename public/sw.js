@@ -1,5 +1,5 @@
 // Reader service worker — offline-first for shell & book content
-const VERSION = "reader-v5-20260415-m3-libgenfix";
+const VERSION = "reader-v6-20260415-libgen-progress-fix";
 const SHELL_CACHE = `${VERSION}-shell`;
 const BOOK_CACHE = `${VERSION}-books`;
 const BP = "/Reader";
