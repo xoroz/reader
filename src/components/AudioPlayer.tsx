@@ -213,7 +213,7 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
         </button>
         <div className="tts-meta">
           <div className="tts-label">
-            {error ? <span style={{ color: "#b91c1c" }}>Audio error: {error}</span> :
+            {error ? <span style={{ color: "var(--m3-error)" }}>Audio error: {error}</span> :
              loading ? "Generating…" :
              playing ? `Reading · ${globalPct}%` :
              parts.length ? "Ready" : "Loading chapter…"}

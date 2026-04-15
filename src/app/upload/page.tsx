@@ -73,14 +73,14 @@ export default function UploadPage() {
 
   return (
     <main className="app-shell">
-      <header style={{ display: "flex", alignItems: "center", gap: "1rem", padding: "1.25rem 1.5rem", maxWidth: 960, margin: "0 auto", width: "100%" }}>
+      <header style={{ display: "flex", alignItems: "center", gap: "var(--m3-space-4)", padding: "var(--m3-space-4) var(--m3-space-5)", maxWidth: 960, margin: "0 auto", width: "100%" }}>
         <a href={BP} className="btn-ghost">← Library</a>
-        <h1 style={{ fontSize: "1.1rem", fontWeight: 600 }}>Upload</h1>
+        <h1 style={{ font: "var(--m3-title-lg)" }}>Upload</h1>
       </header>
 
       {phase === "idle" ? (
         <div className="upload-box">
-          <p style={{ fontSize: "1.1rem", marginBottom: "1.2rem" }}>
+          <p style={{ font: "var(--m3-body-lg)", marginBottom: "var(--m3-space-4)" }}>
             PDF (text-layer), EPUB, DOCX, TXT, or Markdown.
           </p>
           <label className="upload-btn">
@@ -91,22 +91,22 @@ export default function UploadPage() {
       ) : null}
 
       {phase !== "idle" ? (
-        <div style={{ maxWidth: 520, margin: "3rem auto", padding: "2rem", borderRadius: 16, border: "1px solid color-mix(in srgb, var(--reader-fg) 12%, transparent)", background: "color-mix(in srgb, var(--reader-fg) 2%, transparent)" }}>
-          <div style={{ fontSize: "1.1rem", marginBottom: "1.2rem", lineHeight: 1.4 }}>
+        <div style={{ maxWidth: 520, margin: "var(--m3-space-7) auto", padding: "var(--m3-space-6)", borderRadius: "var(--m3-shape-lg)", border: "1px solid var(--m3-outline-variant)", background: "var(--m3-surface-container-low)" }}>
+          <div style={{ font: "var(--m3-title-md)", marginBottom: "var(--m3-space-4)" }}>
             {phase === "uploading" ? "Uploading your book" : phase === "extracting" ? "Converting with AI" : "Something went wrong"}
           </div>
           {phase !== "error" ? (
             <Progress pct={pct} label={stage || "Working"} indeterminate={phase === "extracting" && pct === 0} />
           ) : (
-            <div style={{ color: "#b91c1c", fontSize: "0.9rem", marginBottom: "1rem" }}>{errMsg}</div>
+            <div style={{ color: "var(--m3-error)", font: "var(--m3-body-md)", marginBottom: "var(--m3-space-3)" }}>{errMsg}</div>
           )}
           {phase === "error" ? (
-            <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}>
+            <div style={{ marginTop: "var(--m3-space-3)", display: "flex", gap: "var(--m3-space-2)" }}>
               <button className="btn-primary" onClick={() => { setPhase("idle"); setPct(0); }}>Try again</button>
               <a href={BP} className="btn-ghost">Back to library</a>
             </div>
           ) : (
-            <p style={{ fontSize: "0.8rem", color: "var(--reader-muted)", marginTop: "1rem", lineHeight: 1.4 }}>
+            <p style={{ font: "var(--m3-body-sm)", color: "var(--m3-on-surface-variant)", marginTop: "var(--m3-space-3)" }}>
               {phase === "uploading" ? "Your file is being transferred to the server." : "Your book is being parsed, cleaned up, and structured into chapters. This may take a minute for longer texts."}
             </p>
           )}

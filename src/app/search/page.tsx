@@ -62,23 +62,23 @@ export default function SearchPage() {
 
   return (
     <main className="app-shell">
-      <header style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "1.25rem 1.5rem", maxWidth: 960, margin: "0 auto", width: "100%" }}>
+      <header style={{ display: "flex", alignItems: "center", gap: "var(--m3-space-3)", padding: "var(--m3-space-4) var(--m3-space-5)", maxWidth: 960, margin: "0 auto", width: "100%" }}>
         <a href={BP} className="btn-ghost">← Library</a>
-        <h1 style={{ fontSize: "1.1rem", fontWeight: 600, flex: 1 }}>Search LibGen</h1>
+        <h1 style={{ font: "var(--m3-title-lg)", flex: 1 }}>Search LibGen</h1>
       </header>
 
-      <form onSubmit={doSearch} style={{ maxWidth: 720, margin: "0 auto", padding: "0 1.5rem", display: "flex", gap: "0.5rem", width: "100%", flexWrap: "wrap" }}>
+      <form onSubmit={doSearch} style={{ maxWidth: 720, margin: "0 auto", padding: "0 var(--m3-space-5)", display: "flex", gap: "var(--m3-space-2)", width: "100%", flexWrap: "wrap" }}>
         <input
           autoFocus
           placeholder="Title, author, ISBN…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          style={{ flex: 1, minWidth: 200, padding: "0.75rem 1rem", fontSize: "1rem", border: "1px solid color-mix(in srgb, var(--reader-fg) 18%, transparent)", borderRadius: 10, background: "transparent", color: "inherit", fontFamily: "inherit" }}
+          style={{ flex: 1, minWidth: 200, padding: "var(--m3-space-3) var(--m3-space-4)", font: "var(--m3-body-lg)", border: "1px solid var(--m3-outline-variant)", borderRadius: "var(--m3-shape-sm)", background: "transparent", color: "inherit", fontFamily: "inherit" }}
         />
-        <div className="seg" style={{ display: "inline-flex", background: "color-mix(in srgb, var(--reader-fg) 6%, transparent)", borderRadius: 10, padding: 3, alignSelf: "center" }}>
+        <div className="seg" style={{ display: "inline-flex", background: "var(--m3-surface-container-highest)", borderRadius: "var(--m3-shape-full)", padding: 3, alignSelf: "center" }}>
           {(["epub", "pdf", "any"] as const).map((f) => (
             <button key={f} type="button" aria-pressed={fmt === f} onClick={() => setFmt(f)}
-              style={{ background: fmt === f ? "var(--reader-bg)" : "none", border: 0, padding: "0.45rem 0.8rem", borderRadius: 8, font: "inherit", color: "inherit", cursor: "pointer", boxShadow: fmt === f ? "0 1px 3px rgba(0,0,0,.12)" : "none", fontWeight: fmt === f ? 500 : 400 }}>
+              style={{ background: fmt === f ? "var(--m3-primary)" : "none", color: fmt === f ? "var(--m3-on-primary)" : "inherit", border: 0, padding: "var(--m3-space-2) var(--m3-space-3)", borderRadius: "var(--m3-shape-full)", font: "var(--m3-label-md)", cursor: "pointer", boxShadow: fmt === f ? "var(--m3-elev-1)" : "none", fontWeight: fmt === f ? 600 : 400 }}>
               {f.toUpperCase()}
             </button>
           ))}
@@ -86,14 +86,14 @@ export default function SearchPage() {
         <button className="btn-primary" disabled={busy}>{busy ? "Searching…" : "Search"}</button>
       </form>
 
-      {error && <p style={{ maxWidth: 720, margin: "1rem auto", padding: "0 1.5rem", color: "#c0392b" }}>{error}</p>}
+      {error && <p style={{ maxWidth: 720, margin: "var(--m3-space-3) auto", padding: "0 var(--m3-space-5)", color: "var(--m3-error)" }}>{error}</p>}
       {downloading ? (
-        <div style={{ maxWidth: 720, margin: "1.2rem auto", padding: "0 1.5rem" }}>
+        <div style={{ maxWidth: 720, margin: "var(--m3-space-4) auto", padding: "0 var(--m3-space-5)" }}>
           <Progress pct={pct} label={status || "Working"} indeterminate={pct === 0} />
         </div>
       ) : null}
 
-      <div style={{ maxWidth: 760, margin: "1.5rem auto 5rem", padding: "0 1rem", width: "100%", display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+      <div style={{ maxWidth: 760, margin: "var(--m3-space-5) auto var(--m3-space-8)", padding: "0 var(--m3-space-4)", width: "100%", display: "flex", flexDirection: "column", gap: "var(--m3-space-2)" }}>
         {hits.map((h) => {
           const isBusy = downloading === h.md5;
           const extColor: Record<string, string> = {
@@ -104,37 +104,37 @@ export default function SearchPage() {
           return (
             <div key={h.md5}
               style={{
-                background: "color-mix(in srgb, var(--reader-fg) 2%, transparent)",
-                border: "1px solid color-mix(in srgb, var(--reader-fg) 10%, transparent)",
-                borderRadius: 12,
-                padding: "0.9rem 1rem",
-                display: "flex", alignItems: "center", gap: "0.9rem",
+                background: "var(--m3-surface-container-low)",
+                border: "1px solid var(--m3-outline-variant)",
+                borderRadius: "var(--m3-shape-md)",
+                padding: "var(--m3-space-3) var(--m3-space-4)",
+                display: "flex", alignItems: "center", gap: "var(--m3-space-3)",
                 opacity: downloading && !isBusy ? 0.45 : 1,
-                transition: "opacity 0.15s",
+                transition: "opacity var(--m3-dur-short-3) var(--m3-ease-standard)",
               }}>
               <div style={{
-                flexShrink: 0, width: 48, height: 48, borderRadius: 10,
+                flexShrink: 0, width: 48, height: 48, borderRadius: "var(--m3-shape-sm)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: `color-mix(in srgb, ${badgeColor} 14%, transparent)`,
-                color: badgeColor, fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.04em",
-                fontFamily: "var(--reader-sans)",
+                color: badgeColor, font: "var(--m3-label-sm)", fontWeight: 700, letterSpacing: "0.04em",
+                fontFamily: "var(--m3-font-brand)",
               }}>
                 {(h.extension || "?").toUpperCase()}
               </div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
-                  fontSize: "1.02rem", fontWeight: 500,
-                  lineHeight: 1.3, color: "var(--reader-fg)",
+                  font: "var(--m3-title-sm)", fontWeight: 500,
+                  color: "var(--m3-on-surface)",
                   display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
                 }}>{h.title}</div>
                 {h.author ? (
-                  <div style={{ fontSize: "0.85rem", color: "var(--reader-muted)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <div style={{ font: "var(--m3-body-sm)", color: "var(--m3-on-surface-variant)", marginTop: "var(--m3-space-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {h.author}
                   </div>
                 ) : null}
                 {meta ? (
-                  <div style={{ fontSize: "0.72rem", color: "var(--reader-muted)", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+                  <div style={{ font: "var(--m3-label-sm)", color: "var(--m3-on-surface-variant)", marginTop: "var(--m3-space-1)", fontVariantNumeric: "tabular-nums" }}>
                     {meta}
                   </div>
                 ) : null}
@@ -144,7 +144,7 @@ export default function SearchPage() {
                 className="btn-primary"
                 disabled={!!downloading}
                 onClick={() => pick(h)}
-                style={{ padding: "0.45rem 1rem", fontSize: "0.85rem", minWidth: 68 }}
+                style={{ minWidth: 68 }}
               >
                 {isBusy ? "…" : "Get"}
               </button>
@@ -152,14 +152,14 @@ export default function SearchPage() {
           );
         })}
         {!busy && hits.length === 0 && query && !error && totalRaw > 0 ? (
-          <div style={{ textAlign: "center", padding: "2.5rem 1rem", color: "var(--reader-muted)" }}>
-            <p style={{ fontSize: "1.05rem", marginBottom: "0.8rem" }}>
+          <div style={{ textAlign: "center", padding: "var(--m3-space-6) var(--m3-space-3)", color: "var(--m3-on-surface-variant)" }}>
+            <p style={{ font: "var(--m3-body-lg)", marginBottom: "var(--m3-space-2)" }}>
               No <strong>{fmt.toUpperCase()}</strong> for &ldquo;{query}&rdquo;.
             </p>
-            <p style={{ fontSize: "0.9rem", marginBottom: "1rem" }}>
+            <p style={{ font: "var(--m3-body-md)", marginBottom: "var(--m3-space-3)" }}>
               LibGen has {totalRaw} result{totalRaw === 1 ? "" : "s"} in other formats:
             </p>
-            <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "var(--m3-space-2)", justifyContent: "center", flexWrap: "wrap" }}>
               {Object.entries(formatCounts)
                 .filter(([k]) => k !== fmt)
                 .sort((a, b) => b[1] - a[1])
@@ -175,7 +175,7 @@ export default function SearchPage() {
           </div>
         ) : null}
         {!busy && hits.length === 0 && query && !error && totalRaw === 0 ? (
-          <p style={{ color: "var(--reader-muted)", textAlign: "center", padding: "3rem 0", fontStyle: "italic" }}>
+          <p style={{ color: "var(--m3-on-surface-variant)", textAlign: "center", padding: "var(--m3-space-7) 0", fontStyle: "italic" }}>
             No results for &ldquo;{query}&rdquo;.
           </p>
         ) : null}

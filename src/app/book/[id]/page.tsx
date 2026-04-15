@@ -13,11 +13,11 @@ export default async function BookPage({ params }: { params: Promise<{ id: strin
   const book = books[0];
   if (book.status !== "ready") {
     return (
-      <main className="app-shell" style={{ textAlign: "center", padding: "4rem 1rem", color: "var(--reader-muted)" }}>
-        <p style={{ fontFamily: "var(--reader-serif)", fontSize: "1.2rem" }}>
+      <main className="app-shell" style={{ textAlign: "center", padding: "var(--m3-space-8) var(--m3-space-3)", color: "var(--m3-on-surface-variant)" }}>
+        <p style={{ fontFamily: "var(--m3-font-serif)", fontSize: "1.2rem", lineHeight: 1.5 }}>
           {book.status === "failed" ? "This book failed to extract." : "Still preparing this book…"}
         </p>
-        <div style={{ marginTop: "1.2rem" }}><a href="/Reader" className="btn-ghost">← Library</a></div>
+        <div style={{ marginTop: "var(--m3-space-4)" }}><a href="/Reader" className="btn-ghost">← Library</a></div>
       </main>
     );
   }

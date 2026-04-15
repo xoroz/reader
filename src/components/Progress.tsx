@@ -25,7 +25,7 @@ export default function Progress({
         {label ? (
           <div
             className="m3-progress-label"
-            style={{ marginBottom: "0.4rem", color: "var(--reader-muted)", fontFamily: "var(--reader-sans)" }}
+            style={{ marginBottom: "var(--m3-space-2)", color: "var(--m3-on-surface-variant)", fontFamily: "var(--m3-font-brand)" }}
           >
             {label}
           </div>
@@ -48,10 +48,10 @@ export default function Progress({
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: "0.75rem",
-            marginBottom: "0.4rem",
-            color: "var(--reader-muted)",
-            fontFamily: "var(--reader-sans)",
+            gap: "var(--m3-space-3)",
+            marginBottom: "var(--m3-space-2)",
+            color: "var(--m3-on-surface-variant)",
+            fontFamily: "var(--m3-font-brand)",
           }}
         >
           <span>{label}</span>
@@ -61,29 +61,14 @@ export default function Progress({
         </div>
       ) : null}
       <div
+        className="m3-linear-progress"
         role="progressbar"
         aria-label={ariaLabel}
         aria-valuenow={clamped}
         aria-valuemin={0}
         aria-valuemax={100}
-        style={{
-          width: "100%",
-          height: 8,
-          borderRadius: 999,
-          background: "color-mix(in srgb, var(--reader-fg) 12%, transparent)",
-          overflow: "hidden",
-          position: "relative",
-        }}
       >
-        <div
-          style={{
-            width: `${clamped}%`,
-            height: "100%",
-            background: "var(--reader-fg, currentColor)",
-            borderRadius: 999,
-            transition: "width 0.3s ease",
-          }}
-        />
+        <div className="m3-linear-progress-fill" style={{ width: `${clamped}%` }} />
       </div>
     </div>
   );

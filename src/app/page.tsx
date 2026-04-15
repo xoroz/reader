@@ -43,15 +43,15 @@ export default async function Library({ searchParams }: { searchParams?: Promise
       {newId ? <UploadBanner kind="new" title={newTitle} /> : null}
       {dupId ? <UploadBanner kind="dup" title={dupTitle} /> : null}
       {rows.length === 0 ? (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "2rem 1.5rem", minHeight: "70vh" }}>
-          <div style={{ fontSize: "4.5rem", lineHeight: 1, marginBottom: "1.5rem" }}>📖</div>
-          <h2 style={{ fontSize: "2rem", fontWeight: 600, marginBottom: "0.6rem", color: "var(--reader-fg)" }}>Your library is empty</h2>
-          <p style={{ fontSize: "1.15rem", color: "var(--reader-muted)", maxWidth: "30rem", marginBottom: "2rem", lineHeight: 1.5 }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "var(--m3-space-6) var(--m3-space-5)", minHeight: "70vh" }}>
+          <div style={{ fontSize: "4.5rem", lineHeight: 1, marginBottom: "var(--m3-space-5)" }}>📖</div>
+          <h2 style={{ font: "var(--m3-headline-sm)", marginBottom: "var(--m3-space-3)", color: "var(--m3-on-surface)" }}>Your library is empty</h2>
+          <p style={{ font: "var(--m3-body-lg)", color: "var(--m3-on-surface-variant)", maxWidth: "30rem", marginBottom: "var(--m3-space-6)" }}>
             Upload a book and it will be extracted, cleaned up by AI, and rendered for comfortable reading. PDF, EPUB, DOCX, TXT, or Markdown.
           </p>
-          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", justifyContent: "center" }}>
-            <Link href="/upload" className="btn-primary" style={{ fontSize: "1.05rem", padding: "0.9rem 1.6rem" }}>Upload a book</Link>
-            <Link href="/search" className="btn-ghost" style={{ fontSize: "1.05rem", padding: "0.9rem 1.6rem" }}>Search LibGen</Link>
+          <div style={{ display: "flex", gap: "var(--m3-space-3)", flexWrap: "wrap", justifyContent: "center" }}>
+            <Link href="/upload" className="btn-primary">Upload a book</Link>
+            <Link href="/search" className="btn-ghost">Search LibGen</Link>
           </div>
         </div>
       ) : (
