@@ -77,6 +77,14 @@ export default function LibraryCard({ id, title, author, status, wordCount, chap
           {highlight === "new" ? "New" : "Already in library"}
         </span>
       ) : null}
+      <a
+        className="lib-dl"
+        href={`${BP}/api/books/${id}/original`}
+        onClick={(e) => e.stopPropagation()}
+        download
+        aria-label="Download original file"
+        title="Download original"
+      >↓</a>
       <button className="lib-del" onClick={onDelete} disabled={busy} aria-label="Delete book">×</button>
       <div className="lib-cover">
         {coverOk ? (

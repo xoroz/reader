@@ -13,3 +13,6 @@ covers/
 .DS_Store
 .vscode/
 .idea/
+
+# backups
+*.bak*

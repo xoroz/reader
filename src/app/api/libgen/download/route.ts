@@ -33,11 +33,15 @@ export async function POST(req: NextRequest) {
   await fs.mkdir(dir, { recursive: true });
   const placeholder = path.join(dir, `book.${String(extension || "pdf").toLowerCase()}`);
 
+  console.log("[Reader] libgen download starting", { md5, url: url.slice(0, 120) });
   let saved;
   try {
+    const t0 = Date.now();
     saved = await downloadToFile(url, placeholder, MAX_BYTES);
+    console.log("[Reader] libgen download ok", { md5, bytes: saved.bytes, ms: Date.now() - t0, filename: saved.filename });
   } catch (e: any) {
-    return NextResponse.json({ error: `Download failed: ${e.message || e}` }, { status: 502 });
+    console.error("[Reader] libgen download failed", { md5, url: url.slice(0, 120), err: e?.message || String(e), stack: e?.stack?.split('\n').slice(0, 3).join(' | ') });
+    return NextResponse.json({ error: `Download failed: ${e?.message || e}` }, { status: 502 });
   }
   const filePath = path.join(dir, saved.filename);
 

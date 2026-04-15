@@ -22,21 +22,39 @@ export type LibgenHit = {
 };
 
 export async function searchLibgen(query: string, format?: string): Promise<{ hits: LibgenHit[]; formatCounts: Record<string, number>; totalRaw: number }> {
-  for (const base of MIRRORS) {
+  // Race all mirrors in parallel — first one with non-empty results wins.
+  // Cancel losers on first success so their AbortSignal.timeout rejections don't escape as unhandled.
+  const controllers = MIRRORS.map(() => new AbortController());
+  const timers = controllers.map((c) => setTimeout(() => c.abort(), 7000));
+  const attempts = MIRRORS.map(async (base, i) => {
     try {
       const url = `${base}/index.php?req=${encodeURIComponent(query)}&res=50`;
-      const res = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" }, signal: AbortSignal.timeout(12000) });
-      if (!res.ok) continue;
+      const res = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" }, signal: controllers[i].signal });
+      if (!res.ok) throw new Error(`status ${res.status}`);
       const html = await res.text();
       const all = parseResults(html, base);
-      if (!all.length) continue;
-      const formatCounts: Record<string, number> = {};
-      for (const h of all) if (h.extension) formatCounts[h.extension] = (formatCounts[h.extension] || 0) + 1;
-      const hits = (format && format !== "any") ? all.filter((h) => h.extension === format) : all;
-      return { hits, formatCounts, totalRaw: all.length };
-    } catch {}
+      if (!all.length) throw new Error("empty");
+      return { all, base };
+    } catch (err) {
+      // swallow so unhandled rejections never crash the process; Promise.any still aggregates
+      throw err;
+    }
+  });
+  // Attach a no-op catch to each so post-resolution rejections don't bubble
+  attempts.forEach((p) => p.catch(() => {}));
+  try {
+    const { all } = await Promise.any(attempts);
+    // Cancel still-pending mirror fetches
+    controllers.forEach((c) => { try { c.abort(); } catch {} });
+    timers.forEach((t) => clearTimeout(t));
+    const formatCounts: Record<string, number> = {};
+    for (const h of all) if (h.extension) formatCounts[h.extension] = (formatCounts[h.extension] || 0) + 1;
+    const hits = (format && format !== "any") ? all.filter((h) => h.extension === format) : all;
+    return { hits, formatCounts, totalRaw: all.length };
+  } catch {
+    timers.forEach((t) => clearTimeout(t));
+    return { hits: [], formatCounts: {}, totalRaw: 0 };
   }
-  return { hits: [], formatCounts: {}, totalRaw: 0 };
 }
 
 function strip(s: string): string {
@@ -174,22 +192,31 @@ function parseResults(html: string, base: string): LibgenHit[] {
 }
 
 export async function resolveDownloadUrl(md5: string): Promise<string | null> {
-  for (const base of MIRRORS) {
-    try {
-      const url = `${base}/ads.php?md5=${md5}`;
-      const res = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" }, redirect: "follow", signal: AbortSignal.timeout(15000) });
-      if (!res.ok) continue;
-      const html = await res.text();
-      // The "GET" button on libgen.vg ads.php is typically an <a href="get.php?md5=...&key=..."> or a direct CF-Storage URL.
-      const get1 = html.match(/<a[^>]+href="([^"]+)"[^>]*>\s*GET\s*<\/a>/i);
-      if (get1) return absolute(get1[1], new URL(url));
-      const get2 = html.match(/href="(get\.php\?md5=[^"]+)"/i);
-      if (get2) return new URL(get2[1], url).toString();
-      const get3 = html.match(/href="(https?:\/\/[^"]+\.(?:pdf|epub|djvu|mobi|azw3)(?:\?[^"]*)?)"/i);
-      if (get3) return get3[1];
-    } catch {}
+  const controllers = MIRRORS.map(() => new AbortController());
+  const timers = controllers.map((c) => setTimeout(() => c.abort(), 8000));
+  const attempts = MIRRORS.map(async (base, i) => {
+    const url = `${base}/ads.php?md5=${md5}`;
+    const res = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" }, redirect: "follow", signal: controllers[i].signal });
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const html = await res.text();
+    const get1 = html.match(/<a[^>]+href="([^"]+)"[^>]*>\s*GET\s*<\/a>/i);
+    if (get1) return absolute(get1[1], new URL(url));
+    const get2 = html.match(/href="(get\.php\?md5=[^"]+)"/i);
+    if (get2) return new URL(get2[1], url).toString();
+    const get3 = html.match(/href="(https?:\/\/[^"]+\.(?:pdf|epub|djvu|mobi|azw3)(?:\?[^"]*)?)"/i);
+    if (get3) return get3[1];
+    throw new Error("no GET link");
+  });
+  attempts.forEach((p) => p.catch(() => {}));
+  try {
+    const url = await Promise.any(attempts);
+    controllers.forEach((c) => { try { c.abort(); } catch {} });
+    timers.forEach((t) => clearTimeout(t));
+    return url;
+  } catch {
+    timers.forEach((t) => clearTimeout(t));
+    return null;
   }
-  return null;
 }
 
 function absolute(href: string, origin: URL): string {

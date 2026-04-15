@@ -26,12 +26,13 @@ export default function SearchPage() {
     try {
       const res = await fetch(`${BP}/api/libgen/search?q=${encodeURIComponent(query)}&fmt=${fmt}`);
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Search failed");
+      if (!res.ok) throw new Error((typeof body.error === "string" && body.error) || "Search failed");
       setHits(body.hits || []);
       setFormatCounts(body.formatCounts || {});
       setTotalRaw(body.totalRaw || 0);
-      if (!body.hits?.length && body.totalRaw === 0 && (body.note || body.error)) setError(body.note || body.error);
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+      const friendly = (typeof body.note === "string" && body.note) || (typeof body.error === "string" && body.error) || "";
+      if (!body.hits?.length && body.totalRaw === 0 && friendly) setError(friendly);
+    } catch (e: any) { setError(typeof e?.message === "string" ? e.message : String(e ?? "Unknown error")); } finally { setBusy(false); }
   }
 
   const [pct, setPct] = useState(0);
@@ -44,19 +45,19 @@ export default function SearchPage() {
         body: JSON.stringify({ md5: h.md5, title: h.title, author: h.author, extension: h.extension }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Download failed");
+      if (!res.ok) throw new Error((typeof body.error === "string" && body.error) || "Download failed");
       const bookId = body.id;
       setStatus("Preparing");
       for (let i = 0; i < 600; i++) {
         await new Promise(r => setTimeout(r, 1200));
         const s = await fetch(`${BP}/api/books/${bookId}`).then(r => r.json());
         if (s.status === "ready") { router.push(`/book/${bookId}`); return; }
-        if (s.status === "failed") throw new Error(s.error || "Extraction failed");
+        if (s.status === "failed") throw new Error((typeof s.error === "string" && s.error) || "Extraction failed");
         setStatus(s.status_detail || "Extracting");
         setPct(Number(s.progress_pct || 0));
       }
       throw new Error("Extraction timed out");
-    } catch (e: any) { setError(e.message); setDownloading(""); setPct(0); }
+    } catch (e: any) { setError(typeof e?.message === "string" ? e.message : String(e ?? "Unknown error")); setDownloading(""); setPct(0); }
   }
 
   return (
