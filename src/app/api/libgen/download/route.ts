@@ -25,34 +25,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Library limit reached (10 books). Delete a book to add another." }, { status: 409 });
   }
 
-  const url = await resolveDownloadUrl(md5.toUpperCase());
-  if (!url) return NextResponse.json({ error: "Could not resolve download URL" }, { status: 502 });
-
   const id = crypto.randomUUID();
   const dir = path.join(UPLOAD_DIR, id);
   await fs.mkdir(dir, { recursive: true });
-  const placeholder = path.join(dir, `book.${String(extension || "pdf").toLowerCase()}`);
+  const ext = String(extension || "pdf").toLowerCase();
+  const placeholderName = `book.${ext}`;
+  const placeholder = path.join(dir, placeholderName);
 
-  console.log("[Reader] libgen download starting", { md5, url: url.slice(0, 120) });
-  let saved;
-  try {
-    const t0 = Date.now();
-    saved = await downloadToFile(url, placeholder, MAX_BYTES);
-    console.log("[Reader] libgen download ok", { md5, bytes: saved.bytes, ms: Date.now() - t0, filename: saved.filename });
-  } catch (e: any) {
-    console.error("[Reader] libgen download failed", { md5, url: url.slice(0, 120), err: e?.message || String(e), stack: e?.stack?.split('\n').slice(0, 3).join(' | ') });
-    return NextResponse.json({ error: `Download failed: ${e?.message || e}` }, { status: 502 });
-  }
-  const filePath = path.join(dir, saved.filename);
-
+  // Insert row in 'downloading' state so client polling sees progress immediately.
   await q(
-    `INSERT INTO books (id, owner_email, title, author, source_filename, source_path, source_kind, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'extracting')`,
-    [id, email, title || saved.filename.replace(/\.[^.]+$/, ""), author || null, saved.filename, filePath, path.extname(saved.filename).slice(1).toLowerCase() || "pdf"]
+    `INSERT INTO books (id, owner_email, title, author, source_filename, source_path, source_kind, status, status_detail, progress_pct)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'downloading','Resolving mirror',2)`,
+    [id, email, title || md5, author || null, placeholderName, placeholder, ext]
   );
 
+  // Respond immediately; do download + extract in background.
+  // Client polls /api/books/[id] for status updates.
   (async () => {
+    const setProgress = (stage: string, pct: number) =>
+      q(`UPDATE books SET status_detail = $2, progress_pct = $3 WHERE id = $1`, [id, stage, pct]).catch(() => {});
     try {
+      console.log("[Reader] libgen resolving", { md5, id });
+      const url = await resolveDownloadUrl(md5.toUpperCase());
+      if (!url) throw new Error("Could not resolve download URL from any mirror");
+      console.log("[Reader] libgen download starting", { md5, id, url: url.slice(0, 120) });
+      await setProgress("Downloading", 10);
+      const t0 = Date.now();
+      const saved = await downloadToFile(url, placeholder, MAX_BYTES);
+      console.log("[Reader] libgen download ok", { md5, id, bytes: saved.bytes, ms: Date.now() - t0 });
+      const filePath = path.join(dir, saved.filename);
+      await q(`UPDATE books SET source_filename = $2, source_path = $3, status = 'extracting', status_detail = 'Extracting', progress_pct = 50 WHERE id = $1`,
+        [id, saved.filename, filePath]);
       const out = await extract(filePath, saved.filename, undefined);
       await q(`UPDATE books SET title = COALESCE($2, title), author = COALESCE($3, author), word_count = $4, source_kind = $5, cover_path = $6 WHERE id = $1`,
         [id, out.title || null, out.author || null, out.wordCount, out.kind, out.coverPath || null]);
@@ -70,5 +73,5 @@ export async function POST(req: NextRequest) {
     }
   })();
 
-  return NextResponse.json({ id, bytes: saved.bytes, filename: saved.filename });
+  return NextResponse.json({ id });
 }

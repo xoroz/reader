@@ -1,5 +1,5 @@
 // Reader service worker — offline-first for shell & book content
-const VERSION = "reader-v3-20260415-1029";
+const VERSION = "reader-v4-20260415-1156";
 const SHELL_CACHE = `${VERSION}-shell`;
 const BOOK_CACHE = `${VERSION}-books`;
 const BP = "/Reader";
@@ -36,7 +36,13 @@ self.addEventListener("fetch", (event) => {
   const isLibraryRoot = url.pathname === `${BP}` || url.pathname === `${BP}/`;
   const isStatic = url.pathname.startsWith(`${BP}/_next/static/`) || url.pathname.match(/\.(css|js|woff2?|png|svg|webmanifest)$/);
 
-  if (isBookApi || isBookPage) {
+  // Book pages: network-first to avoid hydration mismatches when JS chunks change between builds.
+  // Book API: stale-while-revalidate for offline reading.
+  if (isBookPage) {
+    event.respondWith(networkFirst(req, BOOK_CACHE));
+    return;
+  }
+  if (isBookApi) {
     event.respondWith(staleWhileRevalidate(req, BOOK_CACHE));
     return;
   }

@@ -9,6 +9,32 @@
 const MIRRORS = ["https://libgen.vg", "https://libgen.la", "https://libgen.gl", "https://libgen.bz"];
 const UA = "Mozilla/5.0 (Reader/0.2)";
 
+// Some libgen mirrors return ~20MB "no results" pages bloated with HTML/CSS/JS.
+// Cap how much HTML we actually read+parse so the parser doesn't burn CPU.
+const MAX_RESULT_HTML_BYTES = 2 * 1024 * 1024; // 2 MB
+async function readCapped(res: Response): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let total = 0;
+  let out = "";
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.length;
+    if (total > MAX_RESULT_HTML_BYTES) {
+      out += decoder.decode(value, { stream: true });
+      try { await reader.cancel(); } catch {}
+      break;
+    }
+    out += decoder.decode(value, { stream: true });
+  }
+  out += decoder.decode();
+  return out;
+}
+
 export type LibgenHit = {
   md5: string;
   title: string;
@@ -31,7 +57,7 @@ export async function searchLibgen(query: string, format?: string): Promise<{ hi
       const url = `${base}/index.php?req=${encodeURIComponent(query)}&res=50`;
       const res = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" }, signal: controllers[i].signal });
       if (!res.ok) throw new Error(`status ${res.status}`);
-      const html = await res.text();
+      const html = await readCapped(res);
       const all = parseResults(html, base);
       if (!all.length) throw new Error("empty");
       return { all, base };
@@ -198,7 +224,7 @@ export async function resolveDownloadUrl(md5: string): Promise<string | null> {
     const url = `${base}/ads.php?md5=${md5}`;
     const res = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" }, redirect: "follow", signal: controllers[i].signal });
     if (!res.ok) throw new Error(`status ${res.status}`);
-    const html = await res.text();
+    const html = await readCapped(res);
     const get1 = html.match(/<a[^>]+href="([^"]+)"[^>]*>\s*GET\s*<\/a>/i);
     if (get1) return absolute(get1[1], new URL(url));
     const get2 = html.match(/href="(get\.php\?md5=[^"]+)"/i);
@@ -226,7 +252,7 @@ function absolute(href: string, origin: URL): string {
 export async function downloadToFile(url: string, dest: string, maxBytes: number): Promise<{ bytes: number; filename: string }> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const res = await fetch(url, { headers: { "User-Agent": UA }, redirect: "follow", signal: AbortSignal.timeout(180000) });
+  const res = await fetch(url, { headers: { "User-Agent": UA }, redirect: "follow", signal: AbortSignal.timeout(600000) });
   if (!res.ok) throw new Error(`download ${res.status}`);
   const cd = res.headers.get("content-disposition") || "";
   const m = cd.match(/filename\*?=["']?(?:UTF-\d'[^']*')?([^";]+)/i);
