@@ -30,8 +30,8 @@ export default async function Library({ searchParams }: { searchParams?: Promise
   return (
     <main className="app-shell">
       <header className="lib-header">
-        <div className="lib-header-title">
-          <h1>Reader</h1>
+        <div className="hero lib-header-title">
+          <h1 className="m3-brand-title">READER</h1>
           <div className="lib-header-sub">{email} · {rows.length}/10 books</div>
         </div>
         <div className="lib-header-actions">
