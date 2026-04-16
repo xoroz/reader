@@ -31,12 +31,22 @@ export const DEFAULT_PREFS: Prefs = {
   ttsRate: 1.0,
 };
 
-const FONTS: { label: string; value: string }[] = [
-  { label: "Source Serif", value: '"Source Serif 4", "Iowan Old Style", Charter, Georgia, serif' },
-  { label: "Georgia", value: 'Georgia, "Times New Roman", serif' },
-  { label: "Charter", value: 'Charter, Georgia, serif' },
-  { label: "Inter / System", value: '-apple-system, BlinkMacSystemFont, Inter, "Segoe UI", Roboto, sans-serif' },
-];
+// Three-step scales — same semantics as the Android prefs sheet.
+const FONT_SIZE = [16, 19, 23] as const;
+const LINE_HEIGHT = [1.45, 1.65, 1.9] as const;
+const MEASURE = [52, 62, 78] as const;
+const MARGINS = [1.5, 3, 5] as const;
+type Step = "S" | "M" | "L";
+function pickStep<T extends number>(value: number, scale: readonly [T, T, T]): Step {
+  const [s, m, l] = scale;
+  const ds = Math.abs(value - s), dm = Math.abs(value - m), dl = Math.abs(value - l);
+  if (ds <= dm && ds <= dl) return "S";
+  if (dl < dm) return "L";
+  return "M";
+}
+function stepValue<T extends number>(step: Step, scale: readonly [T, T, T]): T {
+  return step === "S" ? scale[0] : step === "L" ? scale[2] : scale[1];
+}
 
 export default function PrefsSheet({ prefs, onChange, onClose }: { prefs: Prefs; onChange: (p: Prefs) => void; onClose: () => void }) {
   useEffect(() => {
@@ -47,7 +57,6 @@ export default function PrefsSheet({ prefs, onChange, onClose }: { prefs: Prefs;
     return () => clearTimeout(t);
   }, [prefs]);
 
-  // Close on Escape
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
     window.addEventListener("keydown", onKey);
@@ -55,6 +64,16 @@ export default function PrefsSheet({ prefs, onChange, onClose }: { prefs: Prefs;
   }, [onClose]);
 
   function set<K extends keyof Prefs>(k: K, v: Prefs[K]) { onChange({ ...prefs, [k]: v }); }
+
+  function SizeSeg({ current, onPick }: { current: Step; onPick: (s: Step) => void }) {
+    return (
+      <div className="seg">
+        {(["S", "M", "L"] as const).map((s) => (
+          <button key={s} aria-pressed={current === s} onClick={() => onPick(s)}>{s}</button>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <aside className="prefs-panel" role="dialog" aria-label="Typography preferences" onClick={(e) => e.stopPropagation()}>
@@ -74,49 +93,22 @@ export default function PrefsSheet({ prefs, onChange, onClose }: { prefs: Prefs;
         ))}
       </div>
 
-      <h3>Font</h3>
-      <select value={prefs.font} onChange={(e) => set("font", e.target.value)}>
-        {FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-      </select>
+      <h3>Text size</h3>
+      <SizeSeg current={pickStep(prefs.fontSize, FONT_SIZE)} onPick={(s) => set("fontSize", stepValue(s, FONT_SIZE))} />
 
-      <h3>Size</h3>
-      <div className="row">
-        <span>{prefs.fontSize}px</span>
-        <input type="range" min={14} max={28} step={1} value={prefs.fontSize} onChange={(e) => set("fontSize", Number(e.target.value))} />
-      </div>
-
-      <h3>Line height</h3>
-      <div className="row">
-        <span>{prefs.lineHeight.toFixed(2)}</span>
-        <input type="range" min={1.3} max={2.0} step={0.05} value={prefs.lineHeight} onChange={(e) => set("lineHeight", Number(e.target.value))} />
-      </div>
+      <h3>Line spacing</h3>
+      <SizeSeg current={pickStep(prefs.lineHeight, LINE_HEIGHT)} onPick={(s) => set("lineHeight", stepValue(s, LINE_HEIGHT))} />
 
       <h3>Column width</h3>
-      <div className="row">
-        <span>{prefs.measure}ch</span>
-        <input type="range" min={40} max={90} step={1} value={prefs.measure} onChange={(e) => set("measure", Number(e.target.value))} />
-      </div>
+      <SizeSeg current={pickStep(prefs.measure, MEASURE)} onPick={(s) => set("measure", stepValue(s, MEASURE))} />
 
       <h3>Margins</h3>
-      <div className="row">
-        <span>{prefs.margins.toFixed(1)}rem</span>
-        <input type="range" min={1} max={6} step={0.5} value={prefs.margins} onChange={(e) => set("margins", Number(e.target.value))} />
-      </div>
+      <SizeSeg current={pickStep(prefs.margins, MARGINS)} onPick={(s) => set("margins", stepValue(s, MARGINS))} />
 
-      <h3>Text</h3>
-      <div className="row">
-        <span>Justify</span>
-        <div className="seg" style={{ width: "auto" }}>
-          <button aria-pressed={!prefs.justify} onClick={() => set("justify", false)}>off</button>
-          <button aria-pressed={prefs.justify} onClick={() => set("justify", true)}>on</button>
-        </div>
-      </div>
-      <div className="row">
-        <span>Hyphens</span>
-        <div className="seg" style={{ width: "auto" }}>
-          <button aria-pressed={!prefs.hyphenate} onClick={() => set("hyphenate", false)}>off</button>
-          <button aria-pressed={prefs.hyphenate} onClick={() => set("hyphenate", true)}>on</button>
-        </div>
+      <h3>Alignment</h3>
+      <div className="seg">
+        <button aria-pressed={!prefs.justify} onClick={() => set("justify", false)}>Left</button>
+        <button aria-pressed={prefs.justify} onClick={() => set("justify", true)}>Justify</button>
       </div>
     </aside>
   );

@@ -4,6 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { q } from "@/lib/db";
 import { extract } from "@/lib/extract";
+import { rebuildWithFrontMatter } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,11 +67,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const counts = await q<{ n: string }>(`SELECT COUNT(*)::text AS n FROM books WHERE owner_email = $1 AND duplicate_of IS NULL`, [email]);
-  if (Number(counts[0]?.n || 0) >= 10) {
-    return NextResponse.json({ error: "Library limit reached (10 books). Delete a book to upload another." }, { status: 409 });
-  }
-
   const id = crypto.randomUUID();
   const dir = path.join(UPLOAD_DIR, id);
   await fs.mkdir(dir, { recursive: true });
@@ -92,6 +88,8 @@ export async function POST(req: NextRequest) {
 
       const title = out.title || safeName.replace(/\.[^.]+$/, "");
       const author = out.author || null;
+      await setProgress("Summarizing", 92);
+      out.chapters = await rebuildWithFrontMatter({ title, author, chapters: out.chapters });
       const takKey = normKey(title, author);
 
       const fullText = out.chapters.map((c) => c.paragraphs.join("\n\n")).join("\n\n");

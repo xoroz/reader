@@ -15,6 +15,16 @@ Rules:
 - Merge hyphenated line-breaks (e.g. "exam-\\nple" -> "example").
 - Join lines that belong to the same paragraph; keep paragraph breaks.
 - Detect chapter starts from clear cues ("Chapter 1", "CHAPTER I", "Prologue", numeric section, centered bold heading) and use them as chapters. If no chapters detected, put everything in one chapter with no title.
+- PRESERVE STRUCTURE using a minimal Markdown subset inside paragraph strings. This is mandatory for any heading visible in the source — do not flatten visual hierarchy into plain prose.
+    * A section heading inside a chapter → start the paragraph with "## " (e.g. "## Part One: Awakening").
+    * A sub-heading → "### "; a minor label → "#### ".
+    * A bulleted list item → "- " at the very start of the paragraph.
+    * A numbered list item → "1. " / "2. " at the very start.
+    * Emphasis → wrap in **bold** or *italics* when the source was clearly bold/italic.
+  One structural element per paragraph string. Plain prose paragraphs have NO leading marker.
+  Do not add headings the source doesn't have; only promote existing visual cues (ALL-CAPS lines, centered bold, larger type) to the appropriate level.
+  EXAMPLE — if the source chapter "Chapter 3: Hunger" contains a "The Brain on Food" section and a "Key takeaways" subsection with bullets, return:
+    {"title":"Chapter 3: Hunger","paragraphs":["## The Brain on Food","When we eat...","### Key takeaways","- Dopamine rises before the bite.","- Satiety lags eight minutes."]}
 - RESTORE CONTRACTION APOSTROPHES that were dropped by PDF extraction: "didn t" -> "didn't", "weren t" -> "weren't", "I m" -> "I'm", "it s" -> "it's", "you re" -> "you're", "we ve" -> "we've", etc. Use a typographic apostrophe (\u2019).
 - RESTORE POSSESSIVES: "the ship s" -> "the ship's", "it s own" -> "its own" (when possessive, not contraction).
 - RESTORE QUOTES that were dropped (pairs of "), leaving plain quotes where ambiguous.
@@ -91,6 +101,8 @@ export function normalizeText(text: string): string {
   t = t.replace(/\s+([,.;:!?])/g, "$1");
   // Join hyphenated line breaks already removed earlier, but collapse stray double-space runs
   t = t.replace(/[ \t]{2,}/g, " ");
+  // Normalize dash styles: "--", en-dash, em-dash → single "-" (spaces preserved).
+  t = t.replace(/-{2,}/g, "-").replace(/[\u2013\u2014]/g, "-");
   // Remove orphan "Ó" / random diacritics not adjacent to letters (common OCR junk on page bullets)
   t = t.replace(/(^|\n)\s*[\u00C0-\u00FF\u0100-\u024F]{1,3}\s*(\n|$)/g, "$1$2");
   return t.trim();
@@ -136,4 +148,146 @@ export function isCopyrightChapter(ch: { title?: string; paragraphs: string[] })
 
 export function dropCopyrightChapters<T extends { title?: string; paragraphs: string[] }>(chapters: T[]): T[] {
   return chapters.filter((c) => !isCopyrightChapter(c));
+}
+
+
+// ---------- Front-matter rebuild (title page / summary / TOC) ----------
+
+/**
+ * Drop any residual front-matter chapters the cleanup AI may have kept
+ * (title/cover/half-title pages, any existing TOC). We rebuild these
+ * deterministically after extraction so every book has the same shape.
+ */
+export function dropExistingFrontMatter<T extends { title?: string; paragraphs: string[] }>(chapters: T[]): T[] {
+  return chapters.filter((c) => {
+    const title = (c.title || "").toLowerCase().trim();
+    if (/^(table of )?contents?$/.test(title)) return false;
+    if (/^(title page|cover|half[- ]title|frontispiece|bastard title|title)$/.test(title)) return false;
+    if (/^(dedication|epigraph|acknowledg(e)?ments?|about the author|also by )/i.test(title)) return false;
+    const body = c.paragraphs.join(" ").trim();
+    // Tiny chapter whose title is mostly the book itself or front-matter noise
+    if (body.length < 200 && /title|cover|dedication|epigraph/i.test(title)) return false;
+    return true;
+  });
+}
+
+export function buildTitleChapter(title: string, author?: string | null): { title: string; paragraphs: string[] } {
+  const paragraphs: string[] = [title.trim()];
+  if (author && author.trim()) paragraphs.push(`by ${author.trim()}`);
+  return { title: "Title", paragraphs };
+}
+
+/**
+ * Build a synthetic "Contents" chapter whose single paragraph lists
+ * real chapter titles, one per line. The Reader UI already treats any
+ * chapter titled /^(table of )?contents?$/i as a clickable TOC that
+ * splits on newlines and links each entry to the matching chapter.
+ */
+export function buildTocChapter(
+  bodyChapters: Array<{ title?: string }>
+): { title: string; paragraphs: string[] } | null {
+  const titles = bodyChapters
+    .map((c) => (c.title || "").trim())
+    .filter((t) => t.length > 0 && !/^(title|contents|summary)$/i.test(t));
+  if (titles.length < 2) return null;
+  return { title: "Contents", paragraphs: [titles.join("\n")] };
+}
+
+/**
+ * One OpenRouter call that reads a digest of the whole book and returns
+ * a compact, spoiler-light summary suitable as an opening "Summary" chapter.
+ * Returns null on failure — ingest continues without a summary chapter.
+ */
+export async function summarizeBook(args: {
+  title?: string;
+  author?: string;
+  chapters: Array<{ title?: string; paragraphs: string[] }>;
+}): Promise<{ title: string; paragraphs: string[] } | null> {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) return null;
+  const model =
+    process.env.OPENROUTER_MODEL_SUMMARY ||
+    process.env.OPENROUTER_MODEL_CLEANUP ||
+    "anthropic/claude-haiku-4.5";
+
+  const MAX_TOTAL = 64000;
+  const MAX_PER_CH = 8000;
+  const parts: string[] = [];
+  let used = 0;
+  for (const c of args.chapters) {
+    if (used >= MAX_TOTAL) break;
+    const head = c.paragraphs.join("\n\n").slice(0, MAX_PER_CH);
+    const slab = (c.title ? `\n\n## ${c.title}\n\n` : "\n\n") + head;
+    const take = Math.min(slab.length, MAX_TOTAL - used);
+    parts.push(slab.slice(0, take));
+    used += take;
+  }
+  const digest = parts.join("").trim();
+  if (!digest) return null;
+
+  const system = `You summarize books for a reader who wants a clear preview before diving in.
+Write a concise, well-structured summary of the whole book:
+- Begin with a 1-2 sentence overview (what the book is, genre, scope).
+- Follow with 5-10 sentences covering: the central argument or plot, the main characters or concepts, key takeaways, and the tone.
+- Do NOT include spoilers for fiction beyond what back-cover copy would reveal.
+- Plain paragraphs only. No bullet lists, no headings, no markdown. Keep it under 500 words.
+- Preserve the book's language.`;
+
+  const user = `Title: ${args.title || "(unknown)"}\nAuthor: ${args.author || "(unknown)"}\n\nBOOK DIGEST:\n${digest}`;
+
+  try {
+    const res = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${key}`,
+        "HTTP-Referer": process.env.OPENROUTER_REFERER || "https://apps.lukasz.com/Reader",
+        "X-Title": "Reader",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const json: any = await res.json().catch(() => ({}));
+    const content = (json.choices?.[0]?.message?.content || "").trim();
+    if (!content) return null;
+    let paragraphs = content
+      .split(/\n{2,}/)
+      .map((p: string) => p.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    // Drop redundant leading Markdown heading(s) — the chapter title already says "Summary".
+    while (paragraphs.length && /^#{1,6}\s+/.test(paragraphs[0])) paragraphs = paragraphs.slice(1);
+    if (!paragraphs.length) return null;
+    return { title: "Summary", paragraphs };
+  } catch {
+    return null;
+  }
+}
+
+
+export async function rebuildWithFrontMatter(args: {
+  title: string;
+  author?: string | null;
+  chapters: Array<{ title?: string; paragraphs: string[] }>;
+}): Promise<Array<{ title?: string; paragraphs: string[] }>> {
+  const body = dropExistingFrontMatter(args.chapters);
+  const summary = await summarizeBook({
+    title: args.title,
+    author: args.author || undefined,
+    chapters: body,
+  }).catch(() => null);
+  const titleCh = buildTitleChapter(args.title, args.author);
+  const tocCh = buildTocChapter(body);
+  return [
+    titleCh,
+    ...(summary ? [summary] : []),
+    ...(tocCh ? [tocCh] : []),
+    ...body,
+  ];
 }

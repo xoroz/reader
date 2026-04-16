@@ -32,7 +32,7 @@ export default async function Library({ searchParams }: { searchParams?: Promise
       <header className="lib-header">
         <div className="hero lib-header-title">
           <h1 className="m3-brand-title">READER</h1>
-          <div className="lib-header-sub">{email} · {rows.length}/10 books</div>
+          <div className="lib-header-sub">{email} · {rows.length} books</div>
         </div>
         <div className="lib-header-actions">
           <Link href="/search" className="btn-ghost">Search</Link>

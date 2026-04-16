@@ -59,51 +59,67 @@ export async function GET(req: NextRequest) {
   });
 }
 
+// Postgres FK-violation code for `progress_book_id_fkey`.
+// Happens when a client syncs progress for a book the server has deleted or
+// never owned. Upgrade to a structured 404 so the client can purge local
+// state instead of retrying forever.
+const PG_FK_VIOLATION = "23503";
+
+function isBookMissingError(err: unknown): boolean {
+  return !!err && typeof err === "object" && (err as { code?: string }).code === PG_FK_VIOLATION;
+}
+
 export async function PUT(req: NextRequest) {
   const auth = authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
   const { bookId, chapter, paragraph, updatedAt } = body || {};
   if (!bookId) return NextResponse.json({ error: "Missing bookId" }, { status: 400 });
-  // Last-write-wins by timestamp if client supplied one; else now().
-  if (updatedAt && Number.isFinite(Number(updatedAt))) {
-    const ts = new Date(Number(updatedAt)).toISOString();
-    // Only apply if newer than what's stored.
-    const result = await q<any>(
+  try {
+    // Last-write-wins by timestamp if client supplied one; else now().
+    if (updatedAt && Number.isFinite(Number(updatedAt))) {
+      const ts = new Date(Number(updatedAt)).toISOString();
+      const result = await q<any>(
+        `INSERT INTO progress (book_id, owner_email, chapter_idx, paragraph_idx, updated_at)
+           VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (book_id, owner_email) DO UPDATE
+           SET chapter_idx = EXCLUDED.chapter_idx,
+               paragraph_idx = EXCLUDED.paragraph_idx,
+               updated_at = EXCLUDED.updated_at
+           WHERE progress.updated_at < EXCLUDED.updated_at
+         RETURNING extract(epoch from updated_at)*1000 AS updated_at_ms`,
+        [bookId, auth.email, Number(chapter) || 0, Number(paragraph) || 0, ts]
+      );
+      if (!result.length) {
+        // Server copy is newer — return it so client can reconcile.
+        const rows = await q<any>(
+          `SELECT chapter_idx, paragraph_idx, extract(epoch from updated_at)*1000 AS updated_at_ms
+             FROM progress WHERE book_id = $1 AND owner_email = $2`,
+          [bookId, auth.email]
+        );
+        const r = rows[0];
+        return NextResponse.json({
+          applied: false,
+          server: r ? { chapter: r.chapter_idx, paragraph: r.paragraph_idx, updatedAt: Number(r.updated_at_ms) } : null,
+        });
+      }
+      return NextResponse.json({ applied: true, updatedAt: Number(result[0].updated_at_ms) });
+    }
+    const rows = await q<any>(
       `INSERT INTO progress (book_id, owner_email, chapter_idx, paragraph_idx, updated_at)
-         VALUES ($1,$2,$3,$4,$5)
+         VALUES ($1,$2,$3,$4, now())
        ON CONFLICT (book_id, owner_email) DO UPDATE
          SET chapter_idx = EXCLUDED.chapter_idx,
              paragraph_idx = EXCLUDED.paragraph_idx,
-             updated_at = EXCLUDED.updated_at
-         WHERE progress.updated_at < EXCLUDED.updated_at
+             updated_at = now()
        RETURNING extract(epoch from updated_at)*1000 AS updated_at_ms`,
-      [bookId, auth.email, Number(chapter) || 0, Number(paragraph) || 0, ts]
+      [bookId, auth.email, Number(chapter) || 0, Number(paragraph) || 0]
     );
-    if (!result.length) {
-      // Server copy is newer — return it so client can reconcile.
-      const rows = await q<any>(
-        `SELECT chapter_idx, paragraph_idx, extract(epoch from updated_at)*1000 AS updated_at_ms
-           FROM progress WHERE book_id = $1 AND owner_email = $2`,
-        [bookId, auth.email]
-      );
-      const r = rows[0];
-      return NextResponse.json({
-        applied: false,
-        server: r ? { chapter: r.chapter_idx, paragraph: r.paragraph_idx, updatedAt: Number(r.updated_at_ms) } : null,
-      });
+    return NextResponse.json({ applied: true, updatedAt: Number(rows[0].updated_at_ms) });
+  } catch (err) {
+    if (isBookMissingError(err)) {
+      return NextResponse.json({ error: "book_gone", bookId }, { status: 404 });
     }
-    return NextResponse.json({ applied: true, updatedAt: Number(result[0].updated_at_ms) });
+    throw err;
   }
-  const rows = await q<any>(
-    `INSERT INTO progress (book_id, owner_email, chapter_idx, paragraph_idx, updated_at)
-       VALUES ($1,$2,$3,$4, now())
-     ON CONFLICT (book_id, owner_email) DO UPDATE
-       SET chapter_idx = EXCLUDED.chapter_idx,
-           paragraph_idx = EXCLUDED.paragraph_idx,
-           updated_at = now()
-     RETURNING extract(epoch from updated_at)*1000 AS updated_at_ms`,
-    [bookId, auth.email, Number(chapter) || 0, Number(paragraph) || 0]
-  );
-  return NextResponse.json({ applied: true, updatedAt: Number(rows[0].updated_at_ms) });
 }

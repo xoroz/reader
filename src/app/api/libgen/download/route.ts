@@ -21,11 +21,6 @@ export async function POST(req: NextRequest) {
   const { md5, title, author, extension } = body || {};
   if (!md5 || !/^[A-F0-9]{32}$/i.test(md5)) return NextResponse.json({ error: "Invalid md5" }, { status: 400 });
 
-  const counts = await q<{ n: string }>(`SELECT COUNT(*)::text AS n FROM books WHERE owner_email = $1 AND duplicate_of IS NULL`, [email]);
-  if (Number(counts[0]?.n || 0) >= 10) {
-    return NextResponse.json({ error: "Library limit reached (10 books). Delete a book to add another." }, { status: 409 });
-  }
-
   const id = crypto.randomUUID();
   const dir = path.join(UPLOAD_DIR, id);
   await fs.mkdir(dir, { recursive: true });

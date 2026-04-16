@@ -1,5 +1,53 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+
+// Inline Markdown renderer for AI-generated body text (summary, notes).
+// Handles **bold**, __bold__, *italic*, _italic_, `code`, and [text](url).
+// Everything else is rendered as plain text. Keep tiny — this is not a full MD parser.
+const INLINE_MD_RE = /(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(`[^`\n]+`)|(\[[^\]]+\]\([^)]+\))/g;
+function renderInlineMd(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  INLINE_MD_RE.lastIndex = 0;
+  while ((m = INLINE_MD_RE.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**") && tok.endsWith("**")) parts.push(<strong key={parts.length}>{tok.slice(2, -2)}</strong>);
+    else if (tok.startsWith("__") && tok.endsWith("__")) parts.push(<strong key={parts.length}>{tok.slice(2, -2)}</strong>);
+    else if (tok.startsWith("*") && tok.endsWith("*")) parts.push(<em key={parts.length}>{tok.slice(1, -1)}</em>);
+    else if (tok.startsWith("_") && tok.endsWith("_")) parts.push(<em key={parts.length}>{tok.slice(1, -1)}</em>);
+    else if (tok.startsWith("`") && tok.endsWith("`")) parts.push(<code key={parts.length}>{tok.slice(1, -1)}</code>);
+    else if (tok.startsWith("[")) {
+      const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
+      if (lm) parts.push(<a key={parts.length} href={lm[2]} target="_blank" rel="noopener noreferrer">{renderInlineMd(lm[1])}</a>);
+      else parts.push(tok);
+    }
+    last = INLINE_MD_RE.lastIndex;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+// Returns { tag, content } for a paragraph: if it starts with Markdown heading
+// syntax (`# ...`) or list marker (`- `, `* `), strip the marker so callers
+// can render a proper heading / dedented paragraph. Otherwise returns the
+// paragraph unchanged as a 'p'.
+function classifyParagraph(raw: string): { tag: "h2" | "h3" | "h4" | "li" | "p"; content: string; marker?: string } {
+  const t = raw.trim();
+  const h = /^(#{1,6})\s+(.*)$/.exec(t);
+  if (h) {
+    const level = h[1].length;
+    const tag = (level <= 1 ? "h2" : level === 2 ? "h3" : "h4") as "h2" | "h3" | "h4";
+    return { tag, content: h[2].trim() };
+  }
+  const ul = /^[*\u2022\-]\s+(.*)$/.exec(t);
+  if (ul) return { tag: "li", content: ul[1].trim(), marker: "\u2022" };
+  const ol = /^(\d+)[.)]\s+(.*)$/.exec(t);
+  if (ol) return { tag: "li", content: ol[2].trim(), marker: ol[1] + "." };
+  return { tag: "p", content: raw };
+}
+
 import PrefsSheet, { type Prefs, DEFAULT_PREFS } from "./PrefsSheet";
 import AudioPlayer, { type Voice } from "./AudioPlayer";
 
@@ -79,8 +127,15 @@ export default function Reader({
   }, [sheetOpen, tocOpen]);
   useEffect(() => {
     wakeChrome();
+    const guarded = (e: Event) => {
+      // Clicks inside the reader body area toggle the chrome explicitly via
+      // the onClick below, so don't let them trigger the global wake.
+      const t = e.target as Node | null;
+      if (t && columnRef.current?.contains(t)) return;
+      wakeChrome();
+    };
     const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart", "wheel", "mousemove"];
-    events.forEach((e) => window.addEventListener(e, wakeChrome as any, { passive: true } as any));
+    events.forEach((e) => window.addEventListener(e, guarded as any, { passive: true } as any));
     return () => {
       events.forEach((e) => window.removeEventListener(e, wakeChrome as any));
       if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
@@ -248,7 +303,17 @@ export default function Reader({
         <button className="chrome-btn" onClick={() => setSheetOpen(true)} title="Typography">Aa</button>
       </div>
 
-      <div ref={columnRef} className={prefs.mode === "paginated" ? "reader-column" : "reader-scroll"} aria-label="reader">
+      <div
+        ref={columnRef}
+        className={prefs.mode === "paginated" ? "reader-column" : "reader-scroll"}
+        aria-label="reader"
+        onClick={(e) => {
+          const cls = (e.target as HTMLElement).className || "";
+          if (typeof cls === "string" && (cls.includes("tap-left") || cls.includes("tap-right"))) return;
+          if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
+          setChromeVisible((v) => !v);
+        }}
+      >
         {chapter.title ? <h2>{chapter.title}</h2> : null}
         {(/^(table of )?contents?$/i.test(chapter.title || "")) ? (
           <ul className="reader-toc">
@@ -278,14 +343,27 @@ export default function Reader({
               });
             })}
           </ul>
-        ) : paragraphs.map((p, i) => (
-          <p key={i} data-p-idx={i} className={ttsOn && activePara === i ? "tts-para-active" : undefined}>
-            {p}
-            {ttsOn && activePara === i ? (
-              <span className="tts-para-progress" aria-hidden style={{ ["--frac" as any]: activeFrac.toFixed(3) }} />
-            ) : null}
-          </p>
-        ))}
+        ) : paragraphs.map((p, i) => {
+          const { tag, content, marker } = classifyParagraph(p);
+          const cls = ttsOn && activePara === i ? "tts-para-active" : undefined;
+          if (tag === "h2") return <h2 key={i} data-p-idx={i} className={cls}>{renderInlineMd(content)}</h2>;
+          if (tag === "h3") return <h3 key={i} data-p-idx={i} className={cls}>{renderInlineMd(content)}</h3>;
+          if (tag === "h4") return <h4 key={i} data-p-idx={i} className={cls}>{renderInlineMd(content)}</h4>;
+          if (tag === "li") return (
+            <p key={i} data-p-idx={i} className={`reader-li ${cls ?? ""}`.trim()}>
+              <span className="reader-li-marker">{marker}</span>
+              <span>{renderInlineMd(content)}</span>
+            </p>
+          );
+          return (
+            <p key={i} data-p-idx={i} className={cls}>
+              {renderInlineMd(content)}
+              {ttsOn && activePara === i ? (
+                <span className="tts-para-progress" aria-hidden style={{ ["--frac" as any]: activeFrac.toFixed(3) }} />
+              ) : null}
+            </p>
+          );
+        })}
         {prefs.mode === "scroll" && chapterIdx + 1 < chapters.length ? (
           <div style={{ textAlign: "center", padding: "2rem 0", color: "var(--reader-muted)", fontFamily: "var(--reader-sans)", fontSize: "0.85rem" }}>
             <button className="btn-ghost" onClick={next}>Next chapter →</button>

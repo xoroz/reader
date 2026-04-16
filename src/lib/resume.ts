@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import { q } from "@/lib/db";
 import { extract } from "@/lib/extract";
+import { rebuildWithFrontMatter } from "@/lib/ai";
 
 // Run the same extract + DB update pipeline that /api/libgen/download/route.ts
 // executes after the file lands. Safe to call for any book whose source_path
@@ -21,6 +22,11 @@ export async function resumeExtractForBook(id: string): Promise<void> {
   );
   try {
     const out = await extract(b.source_path, b.source_filename, undefined);
+    out.chapters = await rebuildWithFrontMatter({
+      title: out.title || b.source_filename.replace(/\.[^.]+$/, ""),
+      author: out.author || null,
+      chapters: out.chapters,
+    });
     await q(
       `UPDATE books SET title = COALESCE($2, title), author = COALESCE($3, author), word_count = $4, source_kind = $5, cover_path = $6 WHERE id = $1`,
       [id, out.title || null, out.author || null, out.wordCount, out.kind, out.coverPath || null]

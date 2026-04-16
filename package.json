@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "postinstall": "node -e \"const fs=require('fs'),p='node_modules/shared-auth';try{fs.lstatSync(p)}catch{fs.mkdirSync('node_modules',{recursive:true});fs.symlinkSync('/opt/apps/shared-auth',p,'dir')}\""
   },
   "dependencies": {
     "@types/pdf-parse": "^1.1.5",

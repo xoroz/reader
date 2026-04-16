@@ -358,9 +358,9 @@ body[data-theme="dark"] .app-shell {
   padding-bottom: calc(3rem + env(safe-area-inset-bottom));
 }
 .reader-column {
-  inset: calc(3.25rem + env(safe-area-inset-top)) calc(var(--reader-margins) + env(safe-area-inset-right)) calc(3.25rem + env(safe-area-inset-bottom)) calc(var(--reader-margins) + env(safe-area-inset-left));
+  inset: calc(4.5rem + env(safe-area-inset-top)) calc(var(--reader-margins) + env(safe-area-inset-right)) calc(4.5rem + env(safe-area-inset-bottom)) calc(var(--reader-margins) + env(safe-area-inset-left));
 }
-.reader-scroll { inset: calc(3.25rem + env(safe-area-inset-top)) 0 calc(3.25rem + env(safe-area-inset-bottom)) 0; }
+.reader-scroll { inset: calc(4.5rem + env(safe-area-inset-top)) 0 calc(4.5rem + env(safe-area-inset-bottom)) 0; }
 .chrome-btn {
   background: none;
   border: 0;
@@ -386,10 +386,11 @@ body[data-theme="dark"] .app-shell {
 
 .reader-column {
   position: absolute;
-  inset: 3.25rem var(--reader-margins) 3.25rem var(--reader-margins);
+  inset: 4.5rem var(--reader-margins) 4.5rem var(--reader-margins);
   column-width: var(--reader-measure);
   column-gap: var(--reader-margins);
   column-fill: auto;
+  list-style: none;
   font-family: var(--reader-serif);
   font-size: var(--reader-font-size);
   line-height: var(--reader-line-height);
@@ -407,6 +408,7 @@ body[data-theme="dark"] .app-shell {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   scroll-behavior: smooth;
+  list-style: none;
   font-family: var(--reader-serif);
   font-size: var(--reader-font-size);
   line-height: var(--reader-line-height);
@@ -718,7 +720,11 @@ button, input, select, textarea { font-family: var(--reader-sans); }
 
 /* Reader: clickable Table of Contents list */
 .reader-toc {
-  list-style: none; padding: 0; margin: 0;
+  max-width: var(--reader-measure);
+  margin: 0 auto;
+  padding-left: var(--reader-margins);
+  padding-right: var(--reader-margins);
+  list-style: none;
   font-family: var(--reader-serif);
 }
 .reader-toc li {
@@ -733,3 +739,13 @@ button, input, select, textarea { font-family: var(--reader-sans); }
 }
 .reader-toc a:hover { color: var(--m3-primary); text-decoration: underline; }
 .reader-toc li > span { color: var(--reader-muted); }
+
+
+/* Headings + lists emitted by the ingest cleanup (## / ### / - item). */
+.reader-column h2, .reader-scroll h2 { font-size: 1.6em; font-weight: 700; letter-spacing: -0.005em; margin: 1.2em 0 0.4em !important; break-after: avoid; }
+.reader-column h3, .reader-scroll h3 { font-size: 1.22em; font-weight: 700; margin: 1em 0 0.3em !important; break-after: avoid; letter-spacing: 0.005em; }
+.reader-column h4, .reader-scroll h4 { font-size: 1.02em; font-weight: 600; margin: 0.7em 0 0.15em !important; break-after: avoid; text-transform: uppercase; letter-spacing: 0.05em; color: color-mix(in srgb, var(--reader-fg) 70%, transparent); }
+.reader-scroll h3, .reader-scroll h4 { max-width: var(--reader-measure); margin-left: auto; margin-right: auto; padding: 0 var(--reader-margins); }
+.reader-li { display: grid; grid-template-columns: 2.2em 1fr; gap: 0.1em 0.4em; margin: 0.25em 0 !important; break-inside: avoid; }
+.reader-li-marker { text-align: right; color: var(--reader-muted, var(--reader-fg)); opacity: 0.75; font-variant-numeric: tabular-nums; }
+.reader-scroll .reader-li { max-width: var(--reader-measure); margin-left: auto !important; margin-right: auto !important; padding: 0 var(--reader-margins); }
