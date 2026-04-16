@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
 import { q } from "@/lib/db";
+import { authenticateSync } from "@/lib/sync-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,31 +14,8 @@ export const dynamic = "force-dynamic";
 //   READER_API_TOKEN    — shared secret issued to each external client
 //   READER_API_EMAIL    — email mapped to that token (single-user model for now)
 
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  try { return timingSafeEqual(ab, bb); }
-  catch { return false; }
-}
-
-function authenticate(req: NextRequest): { ok: true; email: string } | { ok: false; status: number; msg: string } {
-  const proxySecret = process.env.PROXY_SECRET;
-  if (proxySecret) {
-    const got = req.headers.get("x-proxy-secret") || "";
-    if (!safeEqual(got, proxySecret)) return { ok: false, status: 403, msg: "Forbidden" };
-  }
-  const token = process.env.READER_API_TOKEN;
-  const email = process.env.READER_API_EMAIL;
-  if (!token || !email) return { ok: false, status: 503, msg: "Sync API not configured" };
-  const auth = req.headers.get("authorization") || "";
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m || !safeEqual(m[1], token)) return { ok: false, status: 401, msg: "Invalid token" };
-  return { ok: true, email: email.toLowerCase() };
-}
-
 export async function GET(req: NextRequest) {
-  const auth = authenticate(req);
+  const auth = authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const url = new URL(req.url);
   const bookId = url.searchParams.get("bookId");
@@ -83,7 +60,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = authenticate(req);
+  const auth = authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
   const { bookId, chapter, paragraph, updatedAt } = body || {};
