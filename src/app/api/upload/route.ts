@@ -22,7 +22,9 @@ async function verifySession(token: string): Promise<string | null> {
   const sig = token.slice(dot + 1);
   const hmac = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64")
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  if (hmac !== sig) return null;
+  const a = Buffer.from(hmac);
+  const b = Buffer.from(sig);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
     const data = JSON.parse(Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
     if (!data.email || !data.expiresAt || Date.now() > data.expiresAt) return null;

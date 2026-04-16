@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { resumeExtractForBook } from "@/lib/resume";
 
 export const runtime = "nodejs";
@@ -9,7 +10,9 @@ export async function POST(req: NextRequest) {
   const secret = process.env.ADMIN_SECRET;
   if (!secret) return NextResponse.json({ error: "ADMIN_SECRET not configured" }, { status: 500 });
   const provided = req.headers.get("x-admin-secret") || "";
-  if (provided !== secret) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const a = Buffer.from(provided);
+  const b = Buffer.from(secret);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
   const id: string | undefined = body?.id;

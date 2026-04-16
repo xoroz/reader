@@ -212,7 +212,7 @@ export default function Reader({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [prefs.mode, sheetOpen, tocOpen, pageIdx, pageCount, chapterIdx, chapters.length]);
 
   const touch = useRef<{ x: number; y: number; t: number } | null>(null);
   function onTouchStart(e: React.TouchEvent) { const t = e.changedTouches[0]; touch.current = { x: t.clientX, y: t.clientY, t: Date.now() }; }
