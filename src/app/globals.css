@@ -744,10 +744,10 @@ button, input, select, textarea { font-family: var(--reader-sans); }
 
 
 /* Headings + lists emitted by the ingest cleanup (## / ### / - item). */
-.reader-column h2, .reader-scroll h2 { font-size: 1.6em; font-weight: 700; letter-spacing: -0.005em; margin: 1.2em 0 0.4em !important; break-after: avoid; }
-.reader-column h3, .reader-scroll h3 { font-size: 1.22em; font-weight: 700; margin: 1em 0 0.3em !important; break-after: avoid; letter-spacing: 0.005em; }
-.reader-column h4, .reader-scroll h4 { font-size: 1.02em; font-weight: 600; margin: 0.7em 0 0.15em !important; break-after: avoid; text-transform: uppercase; letter-spacing: 0.05em; color: color-mix(in srgb, var(--reader-fg) 70%, transparent); }
-.reader-scroll h3, .reader-scroll h4 { max-width: var(--reader-measure); margin-left: auto; margin-right: auto; padding: 0 var(--reader-margins); }
+.reader-column h2, .reader-scroll h2 { font-size: 1.6em; font-weight: 700; letter-spacing: -0.005em; margin-top: 1.2em !important; margin-bottom: 0.4em !important; break-after: avoid; }
+.reader-column h3, .reader-scroll h3 { font-size: 1.22em; font-weight: 700; margin-top: 1em !important; margin-bottom: 0.3em !important; break-after: avoid; letter-spacing: 0.005em; }
+.reader-column h4, .reader-scroll h4 { font-size: 1.02em; font-weight: 600; margin-top: 0.7em !important; margin-bottom: 0.15em !important; break-after: avoid; text-transform: uppercase; letter-spacing: 0.05em; color: color-mix(in srgb, var(--reader-fg) 70%, transparent); }
+.reader-scroll h2, .reader-scroll h3, .reader-scroll h4 { max-width: var(--reader-measure); margin-left: auto !important; margin-right: auto !important; padding: 0 var(--reader-margins); }
 .reader-li { display: grid; grid-template-columns: 2.2em 1fr; gap: 0.1em 0.4em; margin: 0.25em 0 !important; break-inside: avoid; }
 .reader-li-marker { text-align: right; color: var(--reader-muted, var(--reader-fg)); opacity: 0.75; font-variant-numeric: tabular-nums; }
 .reader-scroll .reader-li { max-width: var(--reader-measure); margin-left: auto !important; margin-right: auto !important; padding: 0 var(--reader-margins); }
