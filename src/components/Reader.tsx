@@ -422,13 +422,13 @@ export default function Reader({
           if (tag === "h3") return <h3 key={i} data-p-idx={i} className={cls}>{renderInlineMd(content)}</h3>;
           if (tag === "h4") return <h4 key={i} data-p-idx={i} className={cls}>{renderInlineMd(content)}</h4>;
           if (tag === "li") return (
-            <p key={i} data-p-idx={i} className={`reader-li ${cls ?? ""}`.trim()}>
+            <p key={i} data-p-idx={i} className={`reader-li ${cls ?? ""}`.trim()} style={{ hyphens: prefs.hyphenate ? "auto" : "manual", WebkitHyphens: prefs.hyphenate ? "auto" : "manual" } as React.CSSProperties}>
               <span className="reader-li-marker">{marker}</span>
               <span>{renderInlineMd(content)}</span>
             </p>
           );
           return (
-            <p key={i} data-p-idx={i} className={cls}>
+            <p key={i} data-p-idx={i} className={cls} style={{ hyphens: prefs.hyphenate ? "auto" : "manual", WebkitHyphens: prefs.hyphenate ? "auto" : "manual" } as React.CSSProperties}>
               {renderInlineMd(content)}
               {ttsOn && activePara === i ? (
                 <span className="tts-para-progress" aria-hidden style={{ ["--frac" as any]: activeFrac.toFixed(3) }} />

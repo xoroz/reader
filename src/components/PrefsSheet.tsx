@@ -111,6 +111,12 @@ export default function PrefsSheet({ prefs, onChange, onClose }: { prefs: Prefs;
         <button aria-pressed={!prefs.justify} onClick={() => set("justify", false)}>Left</button>
         <button aria-pressed={prefs.justify} onClick={() => set("justify", true)}>Justify</button>
       </div>
+
+      <h3>Hyphenate long words</h3>
+      <div className="seg">
+        <button aria-pressed={!prefs.hyphenate} onClick={() => set("hyphenate", false)}>Off</button>
+        <button aria-pressed={prefs.hyphenate} onClick={() => set("hyphenate", true)}>On</button>
+      </div>
     </aside>
   );
 }

@@ -432,7 +432,9 @@ body[data-theme="dark"] .app-shell {
 body[data-justify="true"] .reader-column p,
 body[data-justify="true"] .reader-scroll p { text-align: justify; }
 body[data-hyphenate="true"] .reader-column,
-body[data-hyphenate="true"] .reader-scroll { hyphens: auto; }
+body[data-hyphenate="true"] .reader-scroll { -webkit-hyphens: auto; -ms-hyphens: auto; hyphens: auto; }
+body[data-hyphenate="false"] .reader-column,
+body[data-hyphenate="false"] .reader-scroll { -webkit-hyphens: manual; -ms-hyphens: manual; hyphens: manual; }
 
 .progress-dots { display: flex; gap: 4px; align-items: center; }
 .progress-dots .dot { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--m3-on-surface) 25%, transparent); }
