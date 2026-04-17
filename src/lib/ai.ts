@@ -1,4 +1,4 @@
-import { chatCompletion } from "/opt/apps/shared-ai/openrouter.js";
+import { chatCompletion } from "shared-ai";
 
 export async function cleanupChunk(rawText: string, hint: string): Promise<{ chapters: Array<{ title?: string; paragraphs: string[] }> }> {
   const key = process.env.OPENROUTER_API_KEY;
