@@ -83,7 +83,7 @@ export async function synthesize(text: string, voice: TtsVoice): Promise<Buffer>
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${key}`,
-      "HTTP-Referer": process.env.OPENROUTER_REFERER || "https://apps.lukasz.com/Reader",
+      ...(process.env.OPENROUTER_REFERER ? { "HTTP-Referer": process.env.OPENROUTER_REFERER } : {}),
       "X-Title": "Reader",
     },
     body: JSON.stringify(body),

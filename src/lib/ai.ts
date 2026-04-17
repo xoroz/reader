@@ -42,7 +42,7 @@ Rules:
     temperature: 0.1,
     responseFormat: { type: "json_object" },
     appName: "Reader",
-    referer: process.env.OPENROUTER_REFERER || "https://apps.lukasz.com/Reader",
+    referer: process.env.OPENROUTER_REFERER || "",
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -232,7 +232,7 @@ Write a concise, well-structured summary of the whole book:
       model,
       temperature: 0.3,
       appName: "Reader",
-      referer: process.env.OPENROUTER_REFERER || "https://apps.lukasz.com/Reader",
+      referer: process.env.OPENROUTER_REFERER || "",
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
