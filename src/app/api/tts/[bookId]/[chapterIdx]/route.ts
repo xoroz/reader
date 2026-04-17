@@ -7,14 +7,33 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
+// Upper bounds for integer query params. A book with more than 10k chapters
+// or a chapter with more than 10k paragraphs/parts is not a real input; it's
+// abuse (probing for off-by-one DB errors, etc.). Reject fast.
+const MAX_CHAPTER_IDX = 10_000;
+const MAX_PART_IDX = 10_000;
+const MAX_PARAGRAPH_IDX = 100_000;
+
+function parseNonNegativeInt(raw: string | null, max: number): number | null {
+  if (raw === null) return null;
+  if (!/^\d{1,7}$/.test(raw)) return NaN as any;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n > max) return NaN as any;
+  return n;
+}
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ bookId: string; chapterIdx: string }> }) {
   const email = await currentEmail();
   const { bookId, chapterIdx } = await params;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(bookId)) return NextResponse.json({ error: "Invalid bookId" }, { status: 400 });
+  if (!/^\d{1,7}$/.test(chapterIdx)) return NextResponse.json({ error: "Invalid chapter" }, { status: 400 });
   const ch = Number(chapterIdx);
-  if (!Number.isFinite(ch) || ch < 0) return NextResponse.json({ error: "Invalid chapter" }, { status: 400 });
+  if (!Number.isInteger(ch) || ch < 0 || ch > MAX_CHAPTER_IDX) return NextResponse.json({ error: "Invalid chapter" }, { status: 400 });
 
   const partParam = req.nextUrl.searchParams.get("part");
-  const partIdx = partParam !== null ? Number(partParam) : 0;
+  const partParsed = parseNonNegativeInt(partParam, MAX_PART_IDX);
+  if (Number.isNaN(partParsed as any)) return NextResponse.json({ error: "Invalid part" }, { status: 400 });
+  const partIdx: number = partParsed ?? 0;
   const voiceParam = (req.nextUrl.searchParams.get("voice") || "alloy").toLowerCase();
   if (!TTS_VOICES.includes(voiceParam as any)) return NextResponse.json({ error: "Invalid voice" }, { status: 400 });
   const voice = voiceParam as TtsVoice;
@@ -35,7 +54,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
   }
 
   const fromParam = req.nextUrl.searchParams.get("from");
-  const fromPara = fromParam !== null ? Number(fromParam) : null;
+  const fromParsed = parseNonNegativeInt(fromParam, MAX_PARAGRAPH_IDX);
+  if (Number.isNaN(fromParsed as any)) return NextResponse.json({ error: "Invalid from" }, { status: 400 });
+  const fromPara = fromParsed;
 
   // Custom slice (start mid-part): synthesize on the fly, don't cache
   if (fromPara != null) {

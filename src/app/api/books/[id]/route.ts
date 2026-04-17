@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { q } from "@/lib/db";
 import { currentEmail } from "@/lib/user";
+import { checkCsrf, rateLimit, rateLimitResponse } from "@/lib/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,9 +14,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   return NextResponse.json(rows[0]);
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const csrf = checkCsrf(req);
+  if (csrf) return csrf;
   const { id } = await params;
   const email = await currentEmail();
+  const rl = rateLimit(`${email}:book-delete`, 60, 60_000);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfterMs);
   const rows = await q<{ source_path: string | null }>(`SELECT source_path FROM books WHERE id = $1 AND owner_email = $2`, [id, email]);
   if (!rows.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
   await q(`DELETE FROM books WHERE id = $1 AND owner_email = $2`, [id, email]);

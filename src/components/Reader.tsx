@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { apiFetch } from "@/lib/csrf-client";
 
 // Inline Markdown renderer for AI-generated body text (summary, notes).
 // Handles **bold**, __bold__, *italic*, _italic_, `code`, and [text](url).
@@ -85,6 +86,20 @@ export default function Reader({
   const columnRef = useRef<HTMLDivElement>(null);
   const paragraphIdxRef = useRef<number>(initialProgress.paragraph_idx || 0);
   const pendingRestoreRef = useRef<number | null>(initialProgress.paragraph_idx > 0 ? initialProgress.paragraph_idx : null);
+  // Ref on the button that opens the TOC modal, so we can restore focus on close.
+  const tocTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  // Close TOC on Escape and restore focus to the button that opened it.
+  useEffect(() => {
+    if (!tocOpen) return;
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") { e.preventDefault(); setTocOpen(false); } }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      // When the effect tears down (tocOpen flipped to false), put focus back.
+      tocTriggerRef.current?.focus();
+    };
+  }, [tocOpen]);
 
   useEffect(() => {
     const b = document.body;
@@ -224,7 +239,7 @@ export default function Reader({
   // Persist progress (chapter + paragraph)
   useEffect(() => {
     const t = setTimeout(() => {
-      fetch(`${BP}/api/progress`, {
+      apiFetch(`${BP}/api/progress`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookId, chapter_idx: chapterIdx, paragraph_idx: paragraphIdxRef.current }),
@@ -296,11 +311,11 @@ export default function Reader({
           <span style={{ fontWeight: 500, color: "var(--reader-fg)" }}>{title || "Untitled"}</span>
           {chapter.title ? <span> · {chapter.title}</span> : null}
         </div>
-        <button className="chrome-btn" onClick={() => setTtsOn((v) => !v)} title="Listen" aria-pressed={ttsOn} style={{ fontWeight: ttsOn ? 600 : 400 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ verticalAlign: "middle" }}><path d="M3 10v4a1 1 0 0 0 1 1h3l4 3a1 1 0 0 0 1.6-.8V6.8A1 1 0 0 0 11 6l-4 3H4a1 1 0 0 0-1 1z"/><path d="M16 8.5a4.5 4.5 0 0 1 0 7" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/><path d="M18.5 5.5a8 8 0 0 1 0 13" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/></svg>
+        <button className="chrome-btn" onClick={() => setTtsOn((v) => !v)} title="Listen" aria-label={ttsOn ? "Stop text-to-speech" : "Start text-to-speech"} aria-pressed={ttsOn} style={{ fontWeight: ttsOn ? 600 : 400 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ verticalAlign: "middle" }} aria-hidden="true"><path d="M3 10v4a1 1 0 0 0 1 1h3l4 3a1 1 0 0 0 1.6-.8V6.8A1 1 0 0 0 11 6l-4 3H4a1 1 0 0 0-1 1z"/><path d="M16 8.5a4.5 4.5 0 0 1 0 7" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/><path d="M18.5 5.5a8 8 0 0 1 0 13" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/></svg>
         </button>
-        <button className="chrome-btn" onClick={() => setTocOpen(true)} title="Contents">☰</button>
-        <button className="chrome-btn" onClick={() => setSheetOpen(true)} title="Typography">Aa</button>
+        <button ref={tocTriggerRef} className="chrome-btn" onClick={() => setTocOpen(true)} title="Contents" aria-label="Open table of contents">☰</button>
+        <button className="chrome-btn" onClick={() => setSheetOpen(true)} title="Typography" aria-label="Open typography preferences">Aa</button>
       </div>
 
       <div
@@ -317,11 +332,68 @@ export default function Reader({
         {chapter.title ? <h2>{chapter.title}</h2> : null}
         {(/^(table of )?contents?$/i.test(chapter.title || "")) ? (
           <ul className="reader-toc">
-            {paragraphs.flatMap((para, i) => {
-              const lines = para.split(/\n+|\s\u2022\s|(?<=\.)\s+(?=[A-Z0-9])/).map(l => l.trim()).filter(Boolean);
-              return lines.map((line, j) => {
-                const cleaned = line.replace(/\s*\.{2,}\s*\d+\s*$/, "").replace(/\s+\d+\s*$/, "").trim();
-                const target = chapters.findIndex((c, idx) => idx > chapterIdx && c.title && cleaned.toLowerCase().includes(c.title.toLowerCase().replace(/^chapter\s+\d+[:.\s]*/i, "").trim().slice(0, 40)));
+            {(() => {
+              // Flatten paragraphs → lines, splitting only on real line breaks
+              // or bullet separators. Do NOT split on "(?<=\.)\s+" — that would
+              // turn "1. The Self-Image" into two entries ("1." + title).
+              const rawLines = paragraphs
+                .flatMap((p) => p.split(/\n+|\s\u2022\s/))
+                .map((l) => l.trim())
+                .filter(Boolean);
+              // Defensive fallback: merge a dangling "N." / "N" line into the
+              // next non-empty line (handles older cached TOCs where the number
+              // ended up on its own paragraph before this fix shipped).
+              const lines: string[] = [];
+              for (let k = 0; k < rawLines.length; k++) {
+                const cur = rawLines[k];
+                if (/^\d{1,3}\.?$/.test(cur) && k + 1 < rawLines.length) {
+                  lines.push(`${cur.replace(/\.?$/, ".")} ${rawLines[k + 1]}`);
+                  k++;
+                } else {
+                  lines.push(cur);
+                }
+              }
+              // Normalizer for fuzzy matching TOC entry → chapter title.
+              const norm = (s: string) =>
+                s
+                  .toLowerCase()
+                  .replace(/^\s*(chapter|ch\.?)\s*\d+[:.\s]*/i, "")
+                  .replace(/^\s*\d+[.)]\s*/, "")
+                  .replace(/[^a-z0-9]+/g, " ")
+                  .trim();
+              return lines.map((line, i) => {
+                // Strip leading "[text](#ch-N)" markdown link wrapper if present.
+                const mdLink = /^\[([^\]]+)\]\(#ch-(\d+)\)$/.exec(line);
+                let display = line;
+                let explicitTarget = -1;
+                if (mdLink) {
+                  display = mdLink[1];
+                  const n = Number(mdLink[2]);
+                  // Resolve "#ch-N" as 1-based chapter position in body chapters.
+                  const bodyStart = chapters.findIndex(
+                    (c) => !/^(title|summary|(table of )?contents?)$/i.test(c.title || "")
+                  );
+                  if (bodyStart >= 0) explicitTarget = bodyStart + (n - 1);
+                }
+                // Strip trailing page numbers / dot leaders.
+                const cleaned = display
+                  .replace(/\s*\.{2,}\s*\d+\s*$/, "")
+                  .replace(/\s+\d+\s*$/, "")
+                  .trim();
+                const entryN = norm(cleaned);
+                let target = explicitTarget;
+                if (target < 0 && entryN) {
+                  target = chapters.findIndex((c, idx) => {
+                    if (idx <= chapterIdx || !c.title) return false;
+                    const titleN = norm(c.title);
+                    if (!titleN) return false;
+                    return (
+                      titleN === entryN ||
+                      titleN.startsWith(entryN.slice(0, Math.min(entryN.length, 40))) ||
+                      entryN.startsWith(titleN.slice(0, Math.min(titleN.length, 40)))
+                    );
+                  });
+                }
                 const onClick = () => {
                   if (target >= 0) {
                     pendingRestoreRef.current = null;
@@ -332,7 +404,7 @@ export default function Reader({
                   }
                 };
                 return (
-                  <li key={`${i}-${j}`} data-p-idx={i}>
+                  <li key={i} data-p-idx={i}>
                     {target >= 0 ? (
                       <a href="#" onClick={(e) => { e.preventDefault(); onClick(); }}>{cleaned || line}</a>
                     ) : (
@@ -341,7 +413,7 @@ export default function Reader({
                   </li>
                 );
               });
-            })}
+            })()}
           </ul>
         ) : paragraphs.map((p, i) => {
           const { tag, content, marker } = classifyParagraph(p);
@@ -420,7 +492,7 @@ export default function Reader({
 
       {tocOpen ? (
         <div className="sheet-overlay" onClick={() => setTocOpen(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "70vh", overflow: "auto" }}>
+          <div className="sheet" role="dialog" aria-modal="true" aria-label="Table of contents" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "70vh", overflow: "auto" }}>
             <h3>Contents</h3>
             <div style={{ fontFamily: "var(--reader-serif)" }}>
               {chapters.map((c, i) => (

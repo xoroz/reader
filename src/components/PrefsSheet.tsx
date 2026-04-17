@@ -1,5 +1,6 @@
 "use client";
 import { useEffect } from "react";
+import { apiFetch } from "@/lib/csrf-client";
 
 const BP = process.env.NEXT_PUBLIC_BASE_PATH || "/Reader";
 
@@ -51,7 +52,7 @@ function stepValue<T extends number>(step: Step, scale: readonly [T, T, T]): T {
 export default function PrefsSheet({ prefs, onChange, onClose }: { prefs: Prefs; onChange: (p: Prefs) => void; onClose: () => void }) {
   useEffect(() => {
     const t = setTimeout(() => {
-      fetch(`${BP}/api/prefs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prefs) }).catch(() => {});
+      apiFetch(`${BP}/api/prefs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prefs) }).catch(() => {});
       try { localStorage.setItem("reader.prefs", JSON.stringify(prefs)); } catch {}
     }, 300);
     return () => clearTimeout(t);

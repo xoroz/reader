@@ -59,9 +59,29 @@ export async function middleware(request: NextRequest) {
   }
   const res = NextResponse.next();
   res.headers.set("x-user-email", session.email);
+  // Mint a CSRF double-submit cookie if missing. Kept non-HttpOnly so client
+  // JS can echo it in the X-CSRF-Token header on mutating requests. Runs in
+  // the Edge runtime, so we inline the token generation rather than importing
+  // from lib/security (which imports NextResponse types — fine here but we
+  // keep middleware dependency-free).
+  const existingCsrf = request.cookies.get("reader_csrf")?.value;
+  if (!existingCsrf || !/^[a-f0-9]{64}$/.test(existingCsrf)) {
+    const buf = new Uint8Array(32);
+    crypto.getRandomValues(buf);
+    const token = Array.from(buf).map((b) => b.toString(16).padStart(2, "0")).join("");
+    res.cookies.set({
+      name: "reader_csrf",
+      value: token,
+      httpOnly: false,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 12,
+    });
+  }
   return res;
 }
 
 export const config = {
-  matcher: ["/", "/((?!_next/static|_next/image|favicon.ico|icon\\.svg|manifest\\.json|manifest\\.webmanifest|api/upload|api/sync).*)"],
+  matcher: ["/", "/((?!_next/static|_next/image|favicon.ico|icon\\.svg|manifest\\.json|manifest\\.webmanifest|api/upload|api/sync|api/admin).*)"],
 };

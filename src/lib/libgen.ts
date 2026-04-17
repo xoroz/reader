@@ -227,11 +227,20 @@ async function resolveOneMirror(base: string, md5: string, timeoutMs = 8000): Pr
     if (!res.ok) return null;
     const html = await readCapped(res);
     const get1 = html.match(/<a[^>]+href="([^"]+)"[^>]*>\s*GET\s*<\/a>/i);
-    if (get1) return absolute(get1[1], new URL(url));
+    if (get1) {
+      const abs = absolute(get1[1], new URL(url));
+      if (abs) return abs;
+    }
     const get2 = html.match(/href="(get\.php\?md5=[^"]+)"/i);
-    if (get2) return new URL(get2[1], url).toString();
+    if (get2) {
+      const abs = absolute(get2[1], new URL(url));
+      if (abs) return abs;
+    }
     const get3 = html.match(/href="(https?:\/\/[^"]+\.(?:pdf|epub|djvu|mobi|azw3)(?:\?[^"]*)?)"/i);
-    if (get3) return get3[1];
+    if (get3) {
+      const abs = absolute(get3[1], new URL(url));
+      if (abs) return abs;
+    }
     return null;
   } catch {
     return null;
@@ -260,8 +269,41 @@ export async function resolveDownloadUrls(md5: string): Promise<string[]> {
   return urls;
 }
 
-function absolute(href: string, origin: URL): string {
-  try { return new URL(href, origin).toString(); } catch { return href; }
+// Hostname allowlist for every URL we resolve or dereference during LibGen
+// fetches. Anything that doesn't match the mirror roots OR one of the CDN
+// hosts LibGen hands out in "GET" redirects is rejected — this prevents an
+// attacker who controls a mirror HTML response from steering our server into
+// fetching arbitrary internal / LAN / cloud-metadata hosts (SSRF).
+//
+// Note: LibGen mirrors commonly return ads.php pages whose GET button points
+// to `cdn?.books.ms`, `libgen.rs`, or one of the main *.vg/*.la/*.gl/*.bz
+// domains. Keep the list explicit; if a new mirror appears we'll add it
+// deliberately rather than auto-trusting.
+const ALLOWED_DOWNLOAD_HOSTS = new Set<string>([
+  "libgen.vg", "libgen.la", "libgen.gl", "libgen.bz",
+  "cdn1.booksdl.lc", "cdn2.booksdl.lc", "cdn3.booksdl.lc",
+  "cdn.booksdl.org", "cdn1.booksdl.org", "cdn2.booksdl.org",
+  "libgen.rs", "libgen.is", "libgen.st",
+  "download.library.lol", "library.lol",
+  "books.ms", "cdn.books.ms", "cdn1.books.ms", "cdn2.books.ms",
+]);
+
+function isAllowedHost(host: string): boolean {
+  const h = host.toLowerCase();
+  if (ALLOWED_DOWNLOAD_HOSTS.has(h)) return true;
+  // Accept subdomains of any allowed host (e.g. cloudflare CDN edges).
+  for (const base of ALLOWED_DOWNLOAD_HOSTS) {
+    if (h.endsWith("." + base)) return true;
+  }
+  return false;
+}
+
+function absolute(href: string, origin: URL): string | null {
+  let abs: URL;
+  try { abs = new URL(href, origin); } catch { return null; }
+  if (abs.protocol !== "http:" && abs.protocol !== "https:") return null;
+  if (!isAllowedHost(abs.hostname)) return null;
+  return abs.toString();
 }
 
 export type DownloadProgress = (info: { bytes: number; total: number | null; pct: number | null }) => void;
@@ -278,6 +320,14 @@ export async function downloadToFile(
   const fsp = await import("node:fs/promises");
   const path = await import("node:path");
   const stallMs = opts?.stallMs ?? 20000;
+
+  // Defense-in-depth: even though callers (resolveDownloadUrls) only hand us
+  // allowlisted URLs, enforce again here so any future caller can't bypass
+  // the SSRF guard.
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { throw new Error("Invalid download URL"); }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Unsupported protocol");
+  if (!isAllowedHost(parsed.hostname)) throw new Error(`Host not in LibGen allowlist: ${parsed.hostname}`);
 
   const ctrl = new AbortController();
   const linkAbort = () => ctrl.abort(new Error("external abort"));
