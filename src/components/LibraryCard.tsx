@@ -152,6 +152,8 @@ export default function LibraryCard({ id, title, author, status, wordCount, chap
             alt={displayTitle ? `${displayTitle} cover` : "Book cover"}
             loading="lazy"
             decoding="async"
+            width={180}
+            height={270}
             onError={() => setCoverOk(false)}
           />
         ) : (

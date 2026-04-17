@@ -2,11 +2,15 @@ import type { NextConfig } from "next";
 
 // CSP notes:
 // - 'self' covers the app's own origin. The app is served under /Reader via Caddy.
-// - Inline styles: permitted (Next.js + inline style={} usage). Inline scripts
-//   are NOT permitted (no 'unsafe-inline' for script-src) to avoid XSS vectors;
-//   'unsafe-eval' is kept only because webpack dev chunks/next runtime require
-//   it in a few spots. If anything breaks at runtime we'll switch to per-page
-//   nonces.
+// - Inline scripts: Next.js 15/16 injects un-nonced inline <script> bootstrap
+//   tags (self.__next_f.push(...), RSC flight payloads, webpack runtime glue)
+//   into every streamed HTML response. These are required for React hydration
+//   and streaming. There is no built-in nonce support without a custom render
+//   pipeline, so we allow 'unsafe-inline' for script-src. We keep the rest of
+//   the hardening (X-Frame-Options: DENY, tight img/media/connect, etc.).
+//   Follow-up: implement per-request nonces via middleware + custom document
+//   to drop 'unsafe-inline' here. Tracked in TODO.
+// - Inline styles: permitted for the same reason (Next.js + inline style={}).
 // - Cover images come from /Reader/api/books/[id]/cover (same origin). We also
 //   allow data: and blob: so CSS fallbacks and object-URL previews work.
 // - Audio from /Reader/api/tts/... (same origin) + blob:.
@@ -15,7 +19,7 @@ import type { NextConfig } from "next";
 //   entries for external mirrors are needed.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-eval'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "media-src 'self' blob:",
