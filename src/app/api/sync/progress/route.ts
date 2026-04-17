@@ -35,13 +35,22 @@ export async function GET(req: NextRequest) {
     });
   }
   // List all books + progress so external client can match by title/author.
+  // ?archived=false (default) hides archived books from the main library;
+  // ?archived=true fetches only archived; ?archived=all returns everything.
+  const archivedParam = (url.searchParams.get("archived") || "false").toLowerCase();
+  let archivedFilter = "";
+  if (archivedParam === "true") archivedFilter = "AND b.archived = true";
+  else if (archivedParam === "all") archivedFilter = "";
+  else archivedFilter = "AND b.archived = false";
+
   const rows = await q<any>(
-    `SELECT b.id AS book_id, b.title, b.author, b.word_count,
+    `SELECT b.id AS book_id, b.title, b.author, b.word_count, b.archived,
+            extract(epoch from b.finished_prompted_at)*1000 AS finished_prompted_at_ms,
             p.chapter_idx, p.paragraph_idx,
             extract(epoch from p.updated_at)*1000 AS updated_at_ms,
             (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) AS chapter_count
        FROM books b LEFT JOIN progress p ON p.book_id = b.id AND p.owner_email = b.owner_email
-      WHERE b.owner_email = $1 AND b.status = 'ready'
+      WHERE b.owner_email = $1 AND b.status = 'ready' ${archivedFilter}
       ORDER BY b.created_at DESC`,
     [auth.email]
   );
@@ -55,6 +64,8 @@ export async function GET(req: NextRequest) {
       chapter: r.chapter_idx,
       paragraph: r.paragraph_idx,
       updatedAt: r.updated_at_ms == null ? null : Number(r.updated_at_ms),
+      archived: !!r.archived,
+      finishedPromptedAt: r.finished_prompted_at_ms == null ? null : Number(r.finished_prompted_at_ms),
     })),
   });
 }

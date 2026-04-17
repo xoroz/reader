@@ -20,9 +20,14 @@ export default async function Library({ searchParams }: { searchParams?: Promise
             p.chapter_idx,
             (SELECT COUNT(*)::int FROM chapters c WHERE c.book_id = b.id) AS chapter_count
      FROM books b LEFT JOIN progress p ON p.book_id = b.id AND p.owner_email = $1
-     WHERE b.owner_email = $1 ORDER BY b.created_at DESC`,
+     WHERE b.owner_email = $1 AND b.archived = false ORDER BY b.created_at DESC`,
     [email]
   );
+  const archivedCountRows = await q<{ c: number }>(
+    `SELECT COUNT(*)::int AS c FROM books WHERE owner_email = $1 AND archived = true`,
+    [email]
+  );
+  const archivedCount = archivedCountRows[0]?.c ?? 0;
 
   const dupTitle = dupId ? rows.find((r) => r.id === dupId)?.title ?? null : null;
   const newTitle = newId ? rows.find((r) => r.id === newId)?.title ?? null : null;
@@ -36,6 +41,7 @@ export default async function Library({ searchParams }: { searchParams?: Promise
         </div>
         <div className="lib-header-actions">
           <Link href="/search" className="btn-ghost">Search</Link>
+          <Link href="/archived" className="btn-ghost" title="Archived books">Archived{archivedCount ? ` (${archivedCount})` : ""}</Link>
           <Link href="/upload" className="btn-primary" aria-disabled={rows.length >= 10} style={rows.length >= 10 ? { opacity: 0.4, pointerEvents: "none" } : undefined}>Upload</Link>
           <a href="/Reader/api/auth/logout" className="btn-ghost">Sign out</a>
         </div>

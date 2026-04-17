@@ -63,6 +63,7 @@ export default function Reader({
   chapters,
   initialPrefs,
   initialProgress,
+  alreadyPrompted,
 }: {
   bookId: string;
   title: string | null;
@@ -70,6 +71,11 @@ export default function Reader({
   chapters: Chapter[];
   initialPrefs: Partial<Prefs>;
   initialProgress: { chapter_idx: number; paragraph_idx: number };
+  /**
+   * True when the server has already recorded finished_prompted_at for this
+   * book — suppresses the "Archive?" dialog so we don't nag every reopen.
+   */
+  alreadyPrompted?: boolean;
 }) {
   const [prefs, setPrefs] = useState<Prefs>({ ...DEFAULT_PREFS, ...initialPrefs });
   const [chapterIdx, setChapterIdx] = useState<number>(clamp(initialProgress.chapter_idx, 0, chapters.length - 1));
@@ -82,6 +88,13 @@ export default function Reader({
   const [activePara, setActivePara] = useState<number | null>(null);
   const [activeFrac, setActiveFrac] = useState<number>(0);
   const [chromeVisible, setChromeVisible] = useState(true);
+  // "You just finished this book — archive it?" dialog. We keep a session
+  // guard (`suppressFinish`) so the dialog doesn't re-open inside the same
+  // mount once the user has answered; `alreadyPrompted` suppresses it across
+  // sessions (server-side finished_prompted_at).
+  const [finishOpen, setFinishOpen] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [suppressFinish, setSuppressFinish] = useState<boolean>(!!alreadyPrompted);
   const chromeTimerRef = useRef<number | null>(null);
   const columnRef = useRef<HTMLDivElement>(null);
   const paragraphIdxRef = useRef<number>(initialProgress.paragraph_idx || 0);
@@ -298,6 +311,52 @@ export default function Reader({
   const chapter = chapters[chapterIdx];
   const paragraphs = useMemo(() => chapter.text.split(/\n{2,}/).map(s => s.trim()).filter(Boolean), [chapter.text]);
 
+  const isLastChapter = chapterIdx === chapters.length - 1;
+
+  // Detect "finished" — user reached the tail of the last chapter (within 3
+  // paragraphs of the end, matching the spec) OR paginated mode is on the
+  // last page of the last chapter. If we haven't already prompted, open the
+  // archive dialog. We watch pageIdx / scrollPct so both reading modes fire.
+  useEffect(() => {
+    if (suppressFinish || finishOpen) return;
+    if (!isLastChapter) return;
+    const visibleEnd = paragraphIdxRef.current >= Math.max(0, paragraphs.length - 3);
+    const paginatedEnd = prefs.mode === "paginated" && pageIdx >= Math.max(0, pageCount - 1);
+    const scrollEnd = prefs.mode === "scroll" && scrollPct >= 92;
+    if (visibleEnd || paginatedEnd || scrollEnd) {
+      setFinishOpen(true);
+    }
+  }, [isLastChapter, pageIdx, pageCount, scrollPct, paragraphs.length, prefs.mode, suppressFinish, finishOpen]);
+
+  // Persist the fact we've already asked. Runs when the user picks Yes / No
+  // / dismiss, and once `alreadyPrompted` was already true at mount time.
+  async function markPrompted() {
+    setSuppressFinish(true);
+    try {
+      await apiFetch(`${BP}/api/books/${bookId}/finish-prompt`, { method: "POST" });
+    } catch { /* best-effort */ }
+  }
+
+  async function onArchive() {
+    setArchiveBusy(true);
+    try {
+      const res = await apiFetch(`${BP}/api/books/${bookId}/archive`, { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      // markPrompted is implicit: archiving sets finished_prompted_at in the
+      // same tx? No — we still want to record the prompt shown regardless.
+      await markPrompted();
+      // Leave the reader — back to library.
+      window.location.href = BP;
+    } catch (err: any) {
+      alert(`Archive failed: ${err.message || err}`);
+      setArchiveBusy(false);
+    }
+  }
+
+  function onDismissFinish() {
+    setFinishOpen(false);
+    markPrompted();
+  }
 
   const progressPct = prefs.mode === "paginated"
     ? (chapters.length > 1 ? Math.round(((chapterIdx + (pageIdx / Math.max(1, pageCount - 1))) / chapters.length) * 100) : Math.round((pageIdx / Math.max(1, pageCount - 1)) * 100))
@@ -502,6 +561,32 @@ export default function Reader({
                   <span style={{ color: "var(--reader-muted)", fontSize: "0.8rem" }}>{i + 1}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {finishOpen ? (
+        <div className="sheet-overlay" onClick={onDismissFinish}>
+          <div
+            className="sheet"
+            role="alertdialog"
+            aria-modal="true"
+            aria-label="Finished book"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "26rem" }}
+          >
+            <h3 style={{ marginTop: 0 }}>You finished this book.</h3>
+            <p style={{ fontFamily: "var(--reader-serif)", color: "var(--reader-fg)", lineHeight: 1.5 }}>
+              Archive <strong>{title || "Untitled"}</strong>? Archived books are
+              hidden from your main library but stay accessible under
+              <em> Library → Archived</em>.
+            </p>
+            <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", marginTop: "1rem", flexWrap: "wrap" }}>
+              <button className="btn-ghost" onClick={onDismissFinish} disabled={archiveBusy}>Not now</button>
+              <button className="btn-primary" onClick={onArchive} disabled={archiveBusy}>
+                {archiveBusy ? "Archiving…" : "Archive"}
+              </button>
             </div>
           </div>
         </div>

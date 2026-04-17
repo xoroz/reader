@@ -8,7 +8,12 @@ export const dynamic = "force-dynamic";
 export default async function BookPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const email = await currentEmail();
-  const books = await q<any>(`SELECT id, title, author, status FROM books WHERE id = $1 AND owner_email = $2`, [id, email]);
+  const books = await q<any>(
+    `SELECT id, title, author, status, archived,
+            extract(epoch from finished_prompted_at)*1000 AS finished_prompted_at_ms
+       FROM books WHERE id = $1 AND owner_email = $2`,
+    [id, email]
+  );
   if (!books.length) return notFound();
   const book = books[0];
   if (book.status !== "ready") {
@@ -32,6 +37,7 @@ export default async function BookPage({ params }: { params: Promise<{ id: strin
       chapters={chapters.map((c: any) => ({ idx: c.idx, title: c.title, text: c.text }))}
       initialPrefs={prefsRows[0]?.json || {}}
       initialProgress={progressRows[0] || { chapter_idx: 0, paragraph_idx: 0 }}
+      alreadyPrompted={book.finished_prompted_at_ms != null}
     />
   );
 }
