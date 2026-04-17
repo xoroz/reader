@@ -16,3 +16,4 @@ covers/
 
 # backups
 *.bak*
+*.tsbuildinfo
