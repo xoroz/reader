@@ -1,4 +1,4 @@
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+import { chatCompletion } from "/opt/apps/shared-ai/openrouter.js";
 
 export async function cleanupChunk(rawText: string, hint: string): Promise<{ chapters: Array<{ title?: string; paragraphs: string[] }> }> {
   const key = process.env.OPENROUTER_API_KEY;
@@ -36,27 +36,18 @@ Rules:
 
   const user = `Hint: ${hint}\n\nRAW TEXT:\n${rawText}`;
 
-  const res = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${key}`,
-      "HTTP-Referer": process.env.OPENROUTER_REFERER || "https://apps.lukasz.com/Reader",
-      "X-Title": "Reader",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
+  const { content } = await chatCompletion({
+    apiKey: key,
+    model,
+    temperature: 0.1,
+    responseFormat: { type: "json_object" },
+    appName: "Reader",
+    referer: process.env.OPENROUTER_REFERER || "https://apps.lukasz.com/Reader",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
   });
-  if (!res.ok) throw new Error(`cleanup ${res.status}: ${await res.text()}`);
-  const json: any = await res.json();
-  const content = json.choices?.[0]?.message?.content || "{}";
   const fallback = { chapters: [{ paragraphs: splitParagraphs(rawText) }] };
   try {
     const parsed = JSON.parse(content);
@@ -236,26 +227,18 @@ Write a concise, well-structured summary of the whole book:
   const user = `Title: ${args.title || "(unknown)"}\nAuthor: ${args.author || "(unknown)"}\n\nBOOK DIGEST:\n${digest}`;
 
   try {
-    const res = await fetch(OPENROUTER_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${key}`,
-        "HTTP-Referer": process.env.OPENROUTER_REFERER || "https://apps.lukasz.com/Reader",
-        "X-Title": "Reader",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.3,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
+    const { content: raw } = await chatCompletion({
+      apiKey: key,
+      model,
+      temperature: 0.3,
+      appName: "Reader",
+      referer: process.env.OPENROUTER_REFERER || "https://apps.lukasz.com/Reader",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
     });
-    if (!res.ok) return null;
-    const json: any = await res.json().catch(() => ({}));
-    const content = (json.choices?.[0]?.message?.content || "").trim();
+    const content = (raw || "").trim();
     if (!content) return null;
     let paragraphs = content
       .split(/\n{2,}/)

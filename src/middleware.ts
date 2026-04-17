@@ -1,34 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+// @ts-ignore — provided by LXC 106 symlink /opt/apps/Reader/node_modules/shared-auth -> /opt/apps/shared-auth
+import { verifySessionEdge } from "shared-auth/edge";
 
 const SESSION_SECRET = process.env.OTP_SESSION_SECRET || "";
 const COOKIE_NAME = "app_otp_session";
 const BASE_PATH = "/Reader";
-
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-async function verifySessionEdge(token: string, secret: string): Promise<{ email: string; expiresAt: number } | null> {
-  if (!token || !secret) return null;
-  const dotIdx = token.lastIndexOf(".");
-  if (dotIdx === -1) return null;
-  const payload = token.slice(0, dotIdx);
-  const signature = token.slice(dotIdx + 1);
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  const expectedSig = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  if (!constantTimeEqual(signature, expectedSig)) return null;
-  try {
-    const data = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
-    if (!data.email || !data.expiresAt) return null;
-    if (Date.now() > data.expiresAt) return null;
-    return data;
-  } catch { return null; }
-}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

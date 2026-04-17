@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "postinstall": "node -e \"const fs=require('fs'),p='node_modules/shared-auth';try{fs.lstatSync(p)}catch{fs.mkdirSync('node_modules',{recursive:true});fs.symlinkSync('/opt/apps/shared-auth',p,'dir')}\""
+    "postinstall": "node -e \"const fs=require(fs),p=require(path);for(const m of [shared-auth,shared-m3,shared-ai,shared-amadeus]){const d=p.join(node_modules,m);if(!fs.existsSync(d)){fs.mkdirSync(node_modules,{recursive:true});try{fs.symlinkSync(p.join(/opt/apps,m),d,dir)}catch(e){}}}\""
   },
   "dependencies": {
     "@types/pdf-parse": "^1.1.5",
