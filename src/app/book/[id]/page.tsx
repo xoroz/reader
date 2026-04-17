@@ -1,5 +1,5 @@
 import { q } from "@/lib/db";
-import { currentEmail } from "@/lib/user";
+import { requirePageEmail } from "@/lib/user";
 import { notFound } from "next/navigation";
 import Reader from "@/components/Reader";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function BookPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const email = await currentEmail();
+  const email = await requirePageEmail();
   const books = await q<any>(
     `SELECT id, title, author, status, archived,
             extract(epoch from finished_prompted_at)*1000 AS finished_prompted_at_ms

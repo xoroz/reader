@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { q } from "@/lib/db";
-import { currentEmail } from "@/lib/user";
+import { requirePageEmail } from "@/lib/user";
 import LibraryCard from "@/components/LibraryCard";
 import UploadBanner from "@/components/UploadBanner";
 
@@ -14,7 +14,7 @@ export default async function Library({ searchParams }: { searchParams?: Promise
   const dupId = sp.dup || null;
   const highlightId = newId || dupId;
 
-  const email = await currentEmail();
+  const email = await requirePageEmail();
   const rows = await q<Row>(
     `SELECT b.id, b.title, b.author, b.status, b.word_count, b.created_at, b.cover_path,
             p.chapter_idx,
@@ -42,6 +42,7 @@ export default async function Library({ searchParams }: { searchParams?: Promise
         <div className="lib-header-actions">
           <Link href="/search" className="btn-ghost">Search</Link>
           <Link href="/archived" className="btn-ghost" title="Archived books">Archived{archivedCount ? ` (${archivedCount})` : ""}</Link>
+          <Link href="/settings" className="btn-ghost" title="Settings">Settings</Link>
           <Link href="/upload" className="btn-primary" aria-disabled={rows.length >= 10} style={rows.length >= 10 ? { opacity: 0.4, pointerEvents: "none" } : undefined}>Upload</Link>
           <a href="/Reader/api/auth/logout" className="btn-ghost">Sign out</a>
         </div>

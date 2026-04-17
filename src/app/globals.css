@@ -751,3 +751,47 @@ button, input, select, textarea { font-family: var(--reader-sans); }
 .reader-li { display: grid; grid-template-columns: 2.2em 1fr; gap: 0.1em 0.4em; margin: 0.25em 0 !important; break-inside: avoid; }
 .reader-li-marker { text-align: right; color: var(--reader-muted, var(--reader-fg)); opacity: 0.75; font-variant-numeric: tabular-nums; }
 .reader-scroll .reader-li { max-width: var(--reader-measure); margin-left: auto !important; margin-right: auto !important; padding: 0 var(--reader-margins); }
+
+/* OPDS / settings shared UI — consistent with m3 tokens. */
+.opds-card {
+  background: color-mix(in srgb, var(--m3-surface) 88%, var(--m3-surface-variant) 12%);
+  border: 1px solid color-mix(in srgb, var(--m3-outline) 30%, transparent);
+  border-radius: var(--m3-shape-lg, 16px);
+  padding: var(--m3-space-4, 16px);
+  color: var(--m3-on-surface);
+}
+.opds-card-title { margin: 0 0 var(--m3-space-3, 12px); font: var(--m3-title-md); }
+.opds-code {
+  display: block;
+  padding: var(--m3-space-3, 12px);
+  background: color-mix(in srgb, var(--m3-surface-variant) 60%, transparent);
+  border-radius: var(--m3-shape-sm, 8px);
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+.opds-help { font-size: 13px; opacity: 0.75; margin: var(--m3-space-3, 12px) 0 0; line-height: 1.5; }
+.opds-input {
+  height: 40px;
+  padding: 0 var(--m3-space-4, 16px);
+  border-radius: var(--m3-shape-full, 999px);
+  border: 1px solid color-mix(in srgb, var(--m3-outline) 40%, transparent);
+  background: transparent;
+  color: inherit;
+  font: var(--m3-body-md);
+  flex: 1;
+  min-width: 200px;
+}
+.opds-input:focus { outline: 2px solid var(--m3-primary); outline-offset: 1px; }
+.opds-row {
+  display: flex;
+  align-items: center;
+  gap: var(--m3-space-3, 12px);
+  padding: var(--m3-space-3, 12px) var(--m3-space-4, 16px);
+  border-radius: var(--m3-shape-md, 12px);
+  background: color-mix(in srgb, var(--m3-surface-variant) 35%, transparent);
+}
+@media (max-width: 720px) {
+  .opds-layout { grid-template-columns: 1fr !important; }
+}
