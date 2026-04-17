@@ -124,7 +124,17 @@ export default function Reader({
     const r = document.documentElement.style;
     r.setProperty("--reader-font-size", prefs.fontSize + "px");
     r.setProperty("--reader-line-height", String(prefs.lineHeight));
-    r.setProperty("--reader-measure", prefs.measure + "ch");
+    // Resolve `measure` to a px value using the paragraph font's "0" width.
+    // `ch` resolves at each element's own font-size, so larger headings would
+    // expand past the body column and break left-edge alignment when centered.
+    const chPx = (() => {
+      try {
+        const ctx = document.createElement("canvas").getContext("2d");
+        if (ctx) { ctx.font = `${prefs.fontSize}px ${prefs.font}`; return ctx.measureText("0").width; }
+      } catch {}
+      return prefs.fontSize * 0.5;
+    })();
+    r.setProperty("--reader-measure", `${prefs.measure * chPx}px`);
     r.setProperty("--reader-margins", prefs.margins + "rem");
     r.setProperty("--reader-serif", prefs.font);
   }, [prefs, ttsOn]);
