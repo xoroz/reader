@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Password column is never exposed; has_password flag tells the client
 // whether creds are stored.
 export async function GET(req: NextRequest) {
-  const auth = authenticateSync(req);
+  const auth = await authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const rows = await q<{ id: string; title: string; url: string; username: string | null; has_password: boolean; created_at: string }>(
     `SELECT id, title, url, username, (password IS NOT NULL) AS has_password, created_at
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
 // POST — body: { title, url, username?, password? }
 export async function POST(req: NextRequest) {
-  const auth = authenticateSync(req);
+  const auth = await authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
   const title = String(body?.title || "").trim().slice(0, 120);

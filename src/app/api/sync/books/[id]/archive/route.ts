@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // PUT or POST accepted. Bearer-token auth via authenticateSync — same path
 // as the Android progress/cover/chapter routes.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = authenticateSync(req);
+  const auth = await authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const { id } = await params;
   const rows = await q<{ id: string }>(

@@ -7,11 +7,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+function registrableDomain(host: string): string {
+  // Crude eTLD+1: last two labels. Good enough for .org/.com/.net catalogs.
+  const parts = host.toLowerCase().split('.');
+  if (parts.length < 2) return host.toLowerCase();
+  return parts.slice(-2).join('.');
+}
+
 // GET /api/sync/opds/browse?catalogId=…&url=…  — fetches the remote OPDS
 // feed server-side using stored creds, returns parsed shape. Mirror of the
 // cookie-auth /api/opds-client/browse route.
 export async function GET(req: NextRequest) {
-  const auth = authenticateSync(req);
+  const auth = await authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const url = new URL(req.url);
   const catalogId = url.searchParams.get("catalogId") || "";
@@ -29,7 +36,7 @@ export async function GET(req: NextRequest) {
   try { targetUrl = new URL(target, cat.url); } catch { return NextResponse.json({ error: "Bad url" }, { status: 400 }); }
   try {
     const catUrl = new URL(cat.url);
-    if (targetUrl.host !== catUrl.host || targetUrl.protocol !== catUrl.protocol) {
+    if (registrableDomain(targetUrl.host) !== registrableDomain(catUrl.host) || targetUrl.protocol !== catUrl.protocol) {
       return NextResponse.json({ error: "Cross-origin browse blocked" }, { status: 400 });
     }
   } catch { return NextResponse.json({ error: "Bad saved catalog" }, { status: 400 }); }

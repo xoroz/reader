@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Marks that the client has already prompted the user about archiving this
 // book, so future sessions don't re-ask on the same end-of-book state.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = authenticateSync(req);
+  const auth = await authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const { id } = await params;
   const rows = await q<{ id: string }>(

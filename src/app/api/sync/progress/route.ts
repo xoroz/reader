@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 //   READER_API_EMAIL    — email mapped to that token (single-user model for now)
 
 export async function GET(req: NextRequest) {
-  const auth = authenticateSync(req);
+  const auth = await authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const url = new URL(req.url);
   const bookId = url.searchParams.get("bookId");
@@ -81,7 +81,7 @@ function isBookMissingError(err: unknown): boolean {
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = authenticateSync(req);
+  const auth = await authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
   const { bookId, chapter, paragraph, updatedAt } = body || {};

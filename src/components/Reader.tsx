@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/csrf-client";
+import PrefsSheet, { type Prefs, DEFAULT_PREFS } from "./PrefsSheet";
+import AudioPlayer, { type Voice } from "./AudioPlayer";
 
-// Inline Markdown renderer for AI-generated body text (summary, notes).
-// Handles **bold**, __bold__, *italic*, _italic_, `code`, and [text](url).
-// Everything else is rendered as plain text. Keep tiny — this is not a full MD parser.
+const BP = process.env.NEXT_PUBLIC_BASE_PATH || "/Reader";
+
+// Inline Markdown renderer for body text. Tiny on purpose.
 const INLINE_MD_RE = /(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(`[^`\n]+`)|(\[[^\]]+\]\([^)]+\))/g;
 function renderInlineMd(text: string): React.ReactNode {
   const parts: React.ReactNode[] = [];
@@ -30,10 +32,6 @@ function renderInlineMd(text: string): React.ReactNode {
   return parts;
 }
 
-// Returns { tag, content } for a paragraph: if it starts with Markdown heading
-// syntax (`# ...`) or list marker (`- `, `* `), strip the marker so callers
-// can render a proper heading / dedented paragraph. Otherwise returns the
-// paragraph unchanged as a 'p'.
 function classifyParagraph(raw: string): { tag: "h2" | "h3" | "h4" | "li" | "p"; content: string; marker?: string } {
   const t = raw.trim();
   const h = /^(#{1,6})\s+(.*)$/.exec(t);
@@ -49,12 +47,9 @@ function classifyParagraph(raw: string): { tag: "h2" | "h3" | "h4" | "li" | "p";
   return { tag: "p", content: raw };
 }
 
-import PrefsSheet, { type Prefs, DEFAULT_PREFS } from "./PrefsSheet";
-import AudioPlayer, { type Voice } from "./AudioPlayer";
-
-const BP = process.env.NEXT_PUBLIC_BASE_PATH || "/Reader";
-
 type Chapter = { idx: number; title: string | null; text: string };
+
+type Overlay = "none" | "toc" | "prefs" | "ai";
 
 export default function Reader({
   bookId,
@@ -71,10 +66,6 @@ export default function Reader({
   chapters: Chapter[];
   initialPrefs: Partial<Prefs>;
   initialProgress: { chapter_idx: number; paragraph_idx: number };
-  /**
-   * True when the server has already recorded finished_prompted_at for this
-   * book — suppresses the "Archive?" dialog so we don't nag every reopen.
-   */
   alreadyPrompted?: boolean;
 }) {
   const [prefs, setPrefs] = useState<Prefs>({ ...DEFAULT_PREFS, ...initialPrefs });
@@ -82,41 +73,44 @@ export default function Reader({
   const [pageIdx, setPageIdx] = useState<number>(0);
   const [pageCount, setPageCount] = useState<number>(1);
   const [scrollPct, setScrollPct] = useState<number>(0);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [tocOpen, setTocOpen] = useState(false);
+  const [overlay, setOverlay] = useState<Overlay>("none");
   const [ttsOn, setTtsOn] = useState(false);
   const [activePara, setActivePara] = useState<number | null>(null);
   const [activeFrac, setActiveFrac] = useState<number>(0);
   const [chromeVisible, setChromeVisible] = useState(true);
-  // "You just finished this book — archive it?" dialog. We keep a session
-  // guard (`suppressFinish`) so the dialog doesn't re-open inside the same
-  // mount once the user has answered; `alreadyPrompted` suppresses it across
-  // sessions (server-side finished_prompted_at).
   const [finishOpen, setFinishOpen] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [suppressFinish, setSuppressFinish] = useState<boolean>(!!alreadyPrompted);
+  const [aiAnswer, setAiAnswer] = useState<string>("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string>("");
+  const [kbHint, setKbHint] = useState(true);
+
   const chromeTimerRef = useRef<number | null>(null);
   const columnRef = useRef<HTMLDivElement>(null);
   const paragraphIdxRef = useRef<number>(initialProgress.paragraph_idx || 0);
   const pendingRestoreRef = useRef<number | null>(initialProgress.paragraph_idx > 0 ? initialProgress.paragraph_idx : null);
-  // Ref on the button that opens the TOC modal, so we can restore focus on close.
-  const tocTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const aiInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Close TOC on Escape and restore focus to the button that opened it.
+  // Hide the keyboard hint after a few seconds.
   useEffect(() => {
-    if (!tocOpen) return;
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") { e.preventDefault(); setTocOpen(false); } }
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      // When the effect tears down (tocOpen flipped to false), put focus back.
-      tocTriggerRef.current?.focus();
-    };
-  }, [tocOpen]);
+    const t = window.setTimeout(() => setKbHint(false), 3200);
+    return () => window.clearTimeout(t);
+  }, []);
 
+  // Keep <html data-theme> in sync with prefs.theme on mount + change. Also
+  // persist to localStorage so the next full-page load reads the right theme
+  // from the inline <head> script in layout.tsx.
   useEffect(() => {
+    const dom = prefs.theme === "dark" ? "dark" : prefs.theme === "sepia" || prefs.theme === "solarized" ? "sepia" : "paper";
+    try {
+      document.documentElement.setAttribute("data-theme", dom);
+      document.documentElement.style.colorScheme = dom === "dark" ? "dark" : "light";
+      localStorage.setItem("reader-theme", dom);
+    } catch {}
     const b = document.body;
-    b.dataset.theme = prefs.theme;
+    b.dataset.theme = dom;
+    b.dataset.view = "reader";
     b.dataset.justify = String(prefs.justify);
     b.dataset.hyphenate = String(prefs.hyphenate);
     b.dataset.mode = prefs.mode;
@@ -124,9 +118,7 @@ export default function Reader({
     const r = document.documentElement.style;
     r.setProperty("--reader-font-size", prefs.fontSize + "px");
     r.setProperty("--reader-line-height", String(prefs.lineHeight));
-    // Resolve `measure` to a px value using the paragraph font's "0" width.
-    // `ch` resolves at each element's own font-size, so larger headings would
-    // expand past the body column and break left-edge alignment when centered.
+    // Resolve `measure` in px based on the body font's "0" width.
     const chPx = (() => {
       try {
         const ctx = document.createElement("canvas").getContext("2d");
@@ -137,6 +129,7 @@ export default function Reader({
     r.setProperty("--reader-measure", `${prefs.measure * chPx}px`);
     r.setProperty("--reader-margins", prefs.margins + "rem");
     r.setProperty("--reader-serif", prefs.font);
+    return () => { delete b.dataset.view; };
   }, [prefs, ttsOn]);
 
   const computePages = useCallback(() => {
@@ -155,19 +148,17 @@ export default function Reader({
     return () => { ro.disconnect(); window.removeEventListener("resize", computePages); };
   }, [computePages, chapterIdx, prefs]);
 
-  // Auto-hide top+bottom chrome after idle; wake on any interaction.
+  // Chrome auto-hide on idle.
   const wakeChrome = useCallback(() => {
     setChromeVisible(true);
     if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
     chromeTimerRef.current = window.setTimeout(() => {
-      if (!sheetOpen && !tocOpen) setChromeVisible(false);
-    }, 2800);
-  }, [sheetOpen, tocOpen]);
+      if (overlay === "none") setChromeVisible(false);
+    }, 3200);
+  }, [overlay]);
   useEffect(() => {
     wakeChrome();
     const guarded = (e: Event) => {
-      // Clicks inside the reader body area toggle the chrome explicitly via
-      // the onClick below, so don't let them trigger the global wake.
       const t = e.target as Node | null;
       if (t && columnRef.current?.contains(t)) return;
       wakeChrome();
@@ -175,7 +166,7 @@ export default function Reader({
     const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart", "wheel", "mousemove"];
     events.forEach((e) => window.addEventListener(e, guarded as any, { passive: true } as any));
     return () => {
-      events.forEach((e) => window.removeEventListener(e, wakeChrome as any));
+      events.forEach((e) => window.removeEventListener(e, guarded as any));
       if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
     };
   }, [wakeChrome]);
@@ -201,7 +192,7 @@ export default function Reader({
     return () => el.removeEventListener("scroll", onScroll);
   }, [prefs.mode, chapterIdx]);
 
-  // Track the first visible paragraph for resume
+  // Track first visible paragraph for resume.
   useEffect(() => {
     const el = columnRef.current;
     if (!el) return;
@@ -215,7 +206,7 @@ export default function Reader({
     return () => io.disconnect();
   }, [chapterIdx, prefs.mode]);
 
-  // Restore saved paragraph position once layout is ready
+  // Restore saved paragraph position after layout settles.
   useEffect(() => {
     const target = pendingRestoreRef.current;
     if (target == null) return;
@@ -238,7 +229,7 @@ export default function Reader({
     return () => clearTimeout(t);
   }, [chapterIdx, pageCount, prefs.mode, prefs.fontSize, prefs.lineHeight, prefs.measure, prefs.margins, prefs.font]);
 
-  // Keep active paragraph in view when TTS is driving reading position
+  // Keep TTS active paragraph visible.
   useEffect(() => {
     if (!ttsOn || activePara == null) return;
     const el = columnRef.current?.querySelector<HTMLElement>(`[data-p-idx="${activePara}"]`);
@@ -259,7 +250,7 @@ export default function Reader({
     }
   }, [activePara, ttsOn, prefs.mode, pageIdx]);
 
-  // Persist progress (chapter + paragraph)
+  // Persist progress.
   useEffect(() => {
     const t = setTimeout(() => {
       apiFetch(`${BP}/api/progress`, {
@@ -290,7 +281,18 @@ export default function Reader({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (sheetOpen || tocOpen) return;
+      // If an overlay is open, Esc closes it; otherwise back to library.
+      if (e.key === "Escape") {
+        if (overlay !== "none") { e.preventDefault(); setOverlay("none"); return; }
+        if (finishOpen) { e.preventDefault(); setFinishOpen(false); markPrompted(); return; }
+        // Let default Esc behaviour continue (back to library) only if no overlay open.
+        window.location.href = BP;
+        return;
+      }
+      if (overlay !== "none" || finishOpen) return;
+      const isInputTarget = (e.target as HTMLElement)?.tagName === "INPUT" || (e.target as HTMLElement)?.tagName === "TEXTAREA";
+      if (isInputTarget) return;
+      if (e.key === "t" || e.key === "T") { e.preventDefault(); setOverlay((o) => (o === "toc" ? "none" : "toc")); return; }
       if (prefs.mode === "paginated") {
         if (e.key === "ArrowRight" || e.key === " " || e.key === "j" || e.key === "PageDown") { e.preventDefault(); next(); }
         else if (e.key === "ArrowLeft" || e.key === "k" || e.key === "PageUp") { e.preventDefault(); prev(); }
@@ -305,10 +307,26 @@ export default function Reader({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [prefs.mode, sheetOpen, tocOpen, pageIdx, pageCount, chapterIdx, chapters.length]);
+  }, [prefs.mode, overlay, finishOpen, pageIdx, pageCount, chapterIdx, chapters.length]);
+
+  // Close overlay on outside click.
+  useEffect(() => {
+    if (overlay === "none") return;
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      if (t.closest(".drawer, .pop, .reader-top, .prog-ribbon")) return;
+      setOverlay("none");
+    };
+    window.addEventListener("click", onClick);
+    return () => window.removeEventListener("click", onClick);
+  }, [overlay]);
 
   const touch = useRef<{ x: number; y: number; t: number } | null>(null);
-  function onTouchStart(e: React.TouchEvent) { const t = e.changedTouches[0]; touch.current = { x: t.clientX, y: t.clientY, t: Date.now() }; }
+  function onTouchStart(e: React.TouchEvent) {
+    const t = e.changedTouches[0];
+    touch.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+  }
   function onTouchEnd(e: React.TouchEvent) {
     if (!touch.current || prefs.mode !== "paginated") { touch.current = null; return; }
     const t = e.changedTouches[0];
@@ -320,31 +338,35 @@ export default function Reader({
 
   const chapter = chapters[chapterIdx];
   const paragraphs = useMemo(() => chapter.text.split(/\n{2,}/).map(s => s.trim()).filter(Boolean), [chapter.text]);
-
+  const titleAlreadyInBody = useMemo(() => {
+    if (!chapter.title) return false;
+    const norm = (s: string) => s.toLowerCase().replace(/^\s*(chapter|ch\.?)\s*[\divxlcdm]+[:.\s-]*/i, "").replace(/[^a-z0-9]+/g, " ").trim();
+    const tn = norm(chapter.title);
+    if (!tn) return false;
+    const cands = paragraphs.slice(0, 3).filter(p => p.length < 200);
+    for (let n = 1; n <= cands.length; n++) {
+      const pn = norm(cands.slice(0, n).join(" "));
+      if (!pn) continue;
+      if (pn === tn) return true;
+      if (pn.includes(tn) || tn.includes(pn)) return true;
+    }
+    return false;
+  }, [chapter.title, paragraphs]);
   const isLastChapter = chapterIdx === chapters.length - 1;
 
-  // Detect "finished" — user reached the tail of the last chapter (within 3
-  // paragraphs of the end, matching the spec) OR paginated mode is on the
-  // last page of the last chapter. If we haven't already prompted, open the
-  // archive dialog. We watch pageIdx / scrollPct so both reading modes fire.
+  // Finish detection.
   useEffect(() => {
     if (suppressFinish || finishOpen) return;
     if (!isLastChapter) return;
     const visibleEnd = paragraphIdxRef.current >= Math.max(0, paragraphs.length - 3);
     const paginatedEnd = prefs.mode === "paginated" && pageIdx >= Math.max(0, pageCount - 1);
     const scrollEnd = prefs.mode === "scroll" && scrollPct >= 92;
-    if (visibleEnd || paginatedEnd || scrollEnd) {
-      setFinishOpen(true);
-    }
+    if (visibleEnd || paginatedEnd || scrollEnd) setFinishOpen(true);
   }, [isLastChapter, pageIdx, pageCount, scrollPct, paragraphs.length, prefs.mode, suppressFinish, finishOpen]);
 
-  // Persist the fact we've already asked. Runs when the user picks Yes / No
-  // / dismiss, and once `alreadyPrompted` was already true at mount time.
   async function markPrompted() {
     setSuppressFinish(true);
-    try {
-      await apiFetch(`${BP}/api/books/${bookId}/finish-prompt`, { method: "POST" });
-    } catch { /* best-effort */ }
+    try { await apiFetch(`${BP}/api/books/${bookId}/finish-prompt`, { method: "POST" }); } catch {}
   }
 
   async function onArchive() {
@@ -352,45 +374,129 @@ export default function Reader({
     try {
       const res = await apiFetch(`${BP}/api/books/${bookId}/archive`, { method: "POST" });
       if (!res.ok) throw new Error(await res.text());
-      // markPrompted is implicit: archiving sets finished_prompted_at in the
-      // same tx? No — we still want to record the prompt shown regardless.
       await markPrompted();
-      // Leave the reader — back to library.
       window.location.href = BP;
     } catch (err: any) {
       alert(`Archive failed: ${err.message || err}`);
       setArchiveBusy(false);
     }
   }
+  function onDismissFinish() { setFinishOpen(false); markPrompted(); }
 
-  function onDismissFinish() {
-    setFinishOpen(false);
-    markPrompted();
+  function jumpToChapter(i: number) {
+    pendingRestoreRef.current = null;
+    paragraphIdxRef.current = 0;
+    setChapterIdx(i);
+    setPageIdx(0);
+    columnRef.current?.scrollTo({ top: 0 });
+    setOverlay("none");
   }
 
   const progressPct = prefs.mode === "paginated"
     ? (chapters.length > 1 ? Math.round(((chapterIdx + (pageIdx / Math.max(1, pageCount - 1))) / chapters.length) * 100) : Math.round((pageIdx / Math.max(1, pageCount - 1)) * 100))
     : (chapters.length > 1 ? Math.round(((chapterIdx + scrollPct / 100) / chapters.length) * 100) : scrollPct);
 
+  // AI Explain: uses window.getSelection() or the visible chapter text.
+  async function askAi() {
+    setOverlay("ai");
+    setAiError("");
+    setAiBusy(true);
+    try {
+      const sel = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
+      const excerpt = sel && sel.length > 16 ? sel : paragraphs.slice(0, 3).join("\n\n");
+      const res = await apiFetch(`${BP}/api/sync/ai/explain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookId,
+          chapterIdx,
+          selection: sel || "",
+          excerpt,
+          chapterTitle: chapter.title || null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      const j = await res.json();
+      setAiAnswer(j.answer || j.text || j.summary || JSON.stringify(j));
+    } catch (err: any) {
+      // Fallback to a short canned placeholder so the popover renders
+      // even when the AI backend isn't configured for this env.
+      setAiError(err?.message || String(err));
+      setAiAnswer("");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  const chromeHidden = !chromeVisible && overlay === "none";
+  const chapterMeta = chapter.title ? `Chapter ${chapterIdx + 1} · ${chapter.title}` : `Chapter ${chapterIdx + 1}`;
+
   return (
     <div className="reader-stage" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-      <div className={`top-chrome${chromeVisible ? "" : " chrome-hidden"}`}>
-        <a href={BP} className="chrome-btn" title="Library">←</a>
-        <div style={{ flex: 1, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          <span style={{ fontWeight: 500, color: "var(--reader-fg)" }}>{title || "Untitled"}</span>
-          {chapter.title ? <span> · {chapter.title}</span> : null}
+      {/* Top chrome */}
+      <div className={`reader-top${chromeHidden ? " chrome-hidden" : ""}`}>
+        <div className="grp">
+          <a href={BP} className="icon-btn" title="Back to library" aria-label="Back to library">
+            <svg className="icn" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg>
+          </a>
+          <button
+            type="button"
+            className={`icon-btn${overlay === "toc" ? " active" : ""}`}
+            onClick={(e) => { e.stopPropagation(); setOverlay((o) => (o === "toc" ? "none" : "toc")); }}
+            title="Contents (T)"
+            aria-label="Open table of contents"
+            aria-pressed={overlay === "toc"}
+          >
+            <svg className="icn" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+          </button>
         </div>
-        <button className="chrome-btn" onClick={() => setTtsOn((v) => !v)} title="Listen" aria-label={ttsOn ? "Stop text-to-speech" : "Start text-to-speech"} aria-pressed={ttsOn} style={{ fontWeight: ttsOn ? 600 : 400 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ verticalAlign: "middle" }} aria-hidden="true"><path d="M3 10v4a1 1 0 0 0 1 1h3l4 3a1 1 0 0 0 1.6-.8V6.8A1 1 0 0 0 11 6l-4 3H4a1 1 0 0 0-1 1z"/><path d="M16 8.5a4.5 4.5 0 0 1 0 7" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/><path d="M18.5 5.5a8 8 0 0 1 0 13" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/></svg>
-        </button>
-        <button ref={tocTriggerRef} className="chrome-btn" onClick={() => setTocOpen(true)} title="Contents" aria-label="Open table of contents">☰</button>
-        <button className="chrome-btn" onClick={() => setSheetOpen(true)} title="Typography" aria-label="Open typography preferences">Aa</button>
+        <div className="ctr">
+          <div className="t">{title || "Untitled"}</div>
+          <div className="s">{author ? `${author} · ${chapterMeta}` : chapterMeta}</div>
+        </div>
+        <div className="grp">
+          <button
+            type="button"
+            className={`icon-btn${ttsOn ? " active" : ""}`}
+            onClick={() => setTtsOn((v) => !v)}
+            title="Listen"
+            aria-label={ttsOn ? "Stop text-to-speech" : "Start text-to-speech"}
+            aria-pressed={ttsOn}
+          >
+            <svg className="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 10v4h3l4 3V7L7 10H4z" />
+              <path d="M16 9c1.5 1.2 1.5 4.8 0 6" />
+              <path d="M19 6c3 2.5 3 9.5 0 12" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={`icon-btn${overlay === "ai" ? " active" : ""}`}
+            onClick={(e) => { e.stopPropagation(); if (overlay === "ai") setOverlay("none"); else askAi(); }}
+            title="Ask about this chapter"
+            aria-label="Open AI popover"
+            aria-pressed={overlay === "ai"}
+          >
+            <svg className="icn" viewBox="0 0 24 24"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>
+          </button>
+          <button
+            type="button"
+            className={`icon-btn${overlay === "prefs" ? " active" : ""}`}
+            onClick={(e) => { e.stopPropagation(); setOverlay((o) => (o === "prefs" ? "none" : "prefs")); }}
+            title="Reading settings"
+            aria-label="Open reading settings"
+            aria-pressed={overlay === "prefs"}
+          >
+            <svg className="icn" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1-1.5 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 012.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 012.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z" /></svg>
+          </button>
+        </div>
       </div>
 
+      {/* Reading canvas */}
       <div
         ref={columnRef}
         className={prefs.mode === "paginated" ? "reader-column" : "reader-scroll"}
-        aria-label="reader"
+        aria-label="reader body"
         onClick={(e) => {
           const cls = (e.target as HTMLElement).className || "";
           if (typeof cls === "string" && (cls.includes("tap-left") || cls.includes("tap-right"))) return;
@@ -398,20 +504,14 @@ export default function Reader({
           setChromeVisible((v) => !v);
         }}
       >
-        {chapter.title ? <h2>{chapter.title}</h2> : null}
+        {chapter.title && !titleAlreadyInBody ? <h2>{chapter.title}</h2> : null}
         {(/^(table of )?contents?$/i.test(chapter.title || "")) ? (
           <ul className="reader-toc">
             {(() => {
-              // Flatten paragraphs → lines, splitting only on real line breaks
-              // or bullet separators. Do NOT split on "(?<=\.)\s+" — that would
-              // turn "1. The Self-Image" into two entries ("1." + title).
               const rawLines = paragraphs
                 .flatMap((p) => p.split(/\n+|\s\u2022\s/))
                 .map((l) => l.trim())
                 .filter(Boolean);
-              // Defensive fallback: merge a dangling "N." / "N" line into the
-              // next non-empty line (handles older cached TOCs where the number
-              // ended up on its own paragraph before this fix shipped).
               const lines: string[] = [];
               for (let k = 0; k < rawLines.length; k++) {
                 const cur = rawLines[k];
@@ -422,7 +522,6 @@ export default function Reader({
                   lines.push(cur);
                 }
               }
-              // Normalizer for fuzzy matching TOC entry → chapter title.
               const norm = (s: string) =>
                 s
                   .toLowerCase()
@@ -431,20 +530,17 @@ export default function Reader({
                   .replace(/[^a-z0-9]+/g, " ")
                   .trim();
               return lines.map((line, i) => {
-                // Strip leading "[text](#ch-N)" markdown link wrapper if present.
                 const mdLink = /^\[([^\]]+)\]\(#ch-(\d+)\)$/.exec(line);
                 let display = line;
                 let explicitTarget = -1;
                 if (mdLink) {
                   display = mdLink[1];
                   const n = Number(mdLink[2]);
-                  // Resolve "#ch-N" as 1-based chapter position in body chapters.
                   const bodyStart = chapters.findIndex(
                     (c) => !/^(title|summary|(table of )?contents?)$/i.test(c.title || "")
                   );
                   if (bodyStart >= 0) explicitTarget = bodyStart + (n - 1);
                 }
-                // Strip trailing page numbers / dot leaders.
                 const cleaned = display
                   .replace(/\s*\.{2,}\s*\d+\s*$/, "")
                   .replace(/\s+\d+\s*$/, "")
@@ -463,19 +559,10 @@ export default function Reader({
                     );
                   });
                 }
-                const onClick = () => {
-                  if (target >= 0) {
-                    pendingRestoreRef.current = null;
-                    paragraphIdxRef.current = 0;
-                    setChapterIdx(target);
-                    setPageIdx(0);
-                    columnRef.current?.scrollTo({ top: 0 });
-                  }
-                };
                 return (
                   <li key={i} data-p-idx={i}>
                     {target >= 0 ? (
-                      <a href="#" onClick={(e) => { e.preventDefault(); onClick(); }}>{cleaned || line}</a>
+                      <a href="#" onClick={(e) => { e.preventDefault(); jumpToChapter(target); }}>{cleaned || line}</a>
                     ) : (
                       <span>{cleaned || line}</span>
                     )}
@@ -506,44 +593,158 @@ export default function Reader({
           );
         })}
         {prefs.mode === "scroll" && chapterIdx + 1 < chapters.length ? (
-          <div style={{ textAlign: "center", padding: "2rem 0", color: "var(--reader-muted)", fontFamily: "var(--reader-sans)", fontSize: "0.85rem" }}>
-            <button className="btn-ghost" onClick={next}>Next chapter →</button>
+          <div style={{ textAlign: "center", padding: "2rem 0", color: "var(--ink-2)", fontFamily: "var(--reader-sans)", fontSize: "0.85rem" }}>
+            <button type="button" className="btn btn-outline" onClick={next}>Next chapter →</button>
           </div>
         ) : null}
       </div>
 
+      {/* Rails (desktop hover prev/next) */}
       {prefs.mode === "paginated" ? (
         <>
+          <div className="rail l" onClick={prev} title="Previous page (←)">
+            <div className="rl-arrow">
+              <svg className="icn" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg>
+            </div>
+          </div>
+          <div className="rail r" onClick={next} title="Next page (→)">
+            <div className="rl-arrow">
+              <svg className="icn" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></svg>
+            </div>
+          </div>
           <div className="tap-left" onClick={prev} aria-hidden />
           <div className="tap-right" onClick={next} aria-hidden />
         </>
       ) : null}
 
-      <div className={`bottom-chrome${chromeVisible ? "" : " chrome-hidden"}`}>
-        <button
-          className="chrome-btn"
-          onClick={() => { if (chapterIdx > 0) { setChapterIdx(chapterIdx - 1); setPageIdx(0); columnRef.current?.scrollTo({ top: 0 }); } }}
-          disabled={chapterIdx === 0}
-          title="Previous chapter"
-          aria-label="Previous chapter"
-        >⏮</button>
-        <button className="chrome-btn" onClick={prev} title="Previous page" aria-label="Previous page">‹</button>
-        <div className="bottom-chrome-meta">
-          <span>Ch {chapterIdx + 1}/{chapters.length}</span>
-          {prefs.mode === "paginated" ? <><span style={{ margin: "0 0.5rem" }}>·</span><span>p {pageIdx + 1}/{pageCount}</span></> : null}
-          <span style={{ margin: "0 0.5rem" }}>·</span>
-          <span>{progressPct}%</span>
+      {/* Progress ribbon */}
+      <div className={`prog-ribbon${chromeHidden ? " chrome-hidden" : ""}`}>
+        <div className="lft">
+          <span>Ch {chapterIdx + 1} / {chapters.length}</span>
+          {prefs.mode === "paginated" ? <span style={{ color: "var(--ink-3)" }}>· p {pageIdx + 1} / {pageCount}</span> : null}
         </div>
-        <button className="chrome-btn" onClick={next} title="Next page" aria-label="Next page">›</button>
-        <button
-          className="chrome-btn"
-          onClick={() => { if (chapterIdx + 1 < chapters.length) { setChapterIdx(chapterIdx + 1); setPageIdx(0); columnRef.current?.scrollTo({ top: 0 }); } }}
-          disabled={chapterIdx + 1 >= chapters.length}
-          title="Next chapter"
-          aria-label="Next chapter"
-        >⏭</button>
+        <div className="track">
+          <div className="fill" style={{ width: `${progressPct}%` }} />
+        </div>
+        <div className="rgt">
+          <span className="eta">{progressPct}%</span>
+          <span>read</span>
+        </div>
       </div>
 
+      {/* TOC drawer */}
+      <aside className={`drawer${overlay === "toc" ? " open" : ""}`} aria-hidden={overlay !== "toc"}>
+        <div className="drawer-head">
+          <span>Chapters · {chapters.length}</span>
+          <button type="button" className="close" aria-label="Close contents" onClick={() => setOverlay("none")}>×</button>
+        </div>
+        <div className="drawer-body">
+          {chapters.map((c, i) => (
+            <button
+              key={c.idx}
+              type="button"
+              className={`d-chap${i === chapterIdx ? " current" : ""}`}
+              onClick={() => jumpToChapter(i)}
+            >
+              <span className="n">{roman(i + 1)}</span>
+              <div>
+                <div className="t">{c.title || `Chapter ${i + 1}`}</div>
+                <div className="s">{c.text ? `${Math.max(1, Math.round(c.text.split(/\s+/).length / 250))} min` : ""}</div>
+              </div>
+              <span className="p">{i === chapterIdx ? "now" : i + 1}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      {/* Settings popover */}
+      {overlay === "prefs" ? (
+        <PrefsSheet prefs={prefs} onChange={setPrefs} onClose={() => setOverlay("none")} />
+      ) : null}
+
+      {/* AI popover */}
+      {overlay === "ai" ? (
+        <aside
+          className="pop open"
+          role="dialog"
+          aria-label="Ask about this chapter"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: "var(--ink)",
+            color: "var(--paper)",
+            borderColor: "transparent",
+            width: "min(400px, calc(100vw - 32px))",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <div
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 9,
+                background: "var(--accent)",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontFamily: "var(--reader-serif)",
+                fontSize: 16,
+              }}
+            >✦</div>
+            <div>
+              <div style={{ fontFamily: "var(--reader-mono)", fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "#C0AE92" }}>Ask about this chapter</div>
+              <div style={{ fontSize: 13, color: "#D9CDB8", marginTop: 2 }}>Grounded in chapter {chapterIdx + 1}</div>
+            </div>
+          </div>
+          {aiBusy ? (
+            <div style={{ padding: "20px 0", textAlign: "center", color: "#D9CDB8" }}>Thinking…</div>
+          ) : aiError ? (
+            <div style={{ fontSize: 13, color: "#FFB89A", padding: "8px 0", lineHeight: 1.5 }}>
+              AI is unavailable right now. {aiError}
+            </div>
+          ) : aiAnswer ? (
+            <p style={{ fontSize: 14, lineHeight: 1.55, color: "#D9CDB8", marginBottom: 14, whiteSpace: "pre-wrap" }}>{aiAnswer}</p>
+          ) : (
+            <p style={{ fontSize: 14, lineHeight: 1.55, color: "#D9CDB8" }}>Highlight any passage and reopen this to get context-aware notes.</p>
+          )}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              background: "rgba(255,255,255,0.08)",
+              borderRadius: 999,
+              padding: "4px 4px 4px 14px",
+              alignItems: "center",
+            }}
+          >
+            <input
+              ref={aiInputRef}
+              placeholder="Ask another question…"
+              style={{
+                flex: 1,
+                border: 0,
+                background: "transparent",
+                color: "var(--paper)",
+                font: "inherit",
+                fontSize: 13,
+                outline: "none",
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") askAi(); }}
+            />
+            <button
+              type="button"
+              className="btn btn-accent"
+              style={{ padding: "8px 14px", fontSize: 12 }}
+              onClick={askAi}
+              disabled={aiBusy}
+            >
+              {aiBusy ? "…" : "Ask"}
+            </button>
+          </div>
+        </aside>
+      ) : null}
+
+      {/* TTS bar */}
       {ttsOn ? (
         <AudioPlayer
           bookId={bookId}
@@ -557,44 +758,33 @@ export default function Reader({
         />
       ) : null}
 
-      {sheetOpen ? <PrefsSheet prefs={prefs} onChange={setPrefs} onClose={() => setSheetOpen(false)} /> : null}
-
-      {tocOpen ? (
-        <div className="sheet-overlay" onClick={() => setTocOpen(false)}>
-          <div className="sheet" role="dialog" aria-modal="true" aria-label="Table of contents" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "70vh", overflow: "auto" }}>
-            <h3>Contents</h3>
-            <div style={{ fontFamily: "var(--reader-serif)" }}>
-              {chapters.map((c, i) => (
-                <div key={c.idx} className="row" style={{ cursor: "pointer", padding: "0.5rem 0", borderBottom: "1px solid color-mix(in srgb, var(--reader-fg) 8%, transparent)" }}
-                  onClick={() => { pendingRestoreRef.current = null; paragraphIdxRef.current = 0; setChapterIdx(i); setPageIdx(0); columnRef.current?.scrollTo({ top: 0 }); setTocOpen(false); }}>
-                  <span style={{ fontWeight: i === chapterIdx ? 600 : 400 }}>{c.title || `Chapter ${i + 1}`}</span>
-                  <span style={{ color: "var(--reader-muted)", fontSize: "0.8rem" }}>{i + 1}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+      {/* KB hint */}
+      {kbHint ? (
+        <div className="kb-hint vis" aria-hidden>
+          <div className="k-grp"><kbd>←</kbd><kbd>→</kbd><span>page</span></div>
+          <div className="k-grp"><kbd>Space</kbd><span>next</span></div>
+          <div className="k-grp"><kbd>T</kbd><span>contents</span></div>
+          <div className="k-grp"><kbd>Esc</kbd><span>library</span></div>
         </div>
       ) : null}
 
+      {/* Finish dialog */}
       {finishOpen ? (
-        <div className="sheet-overlay" onClick={onDismissFinish}>
+        <div className="dialog-overlay" onClick={onDismissFinish}>
           <div
-            className="sheet"
+            className="dialog"
             role="alertdialog"
             aria-modal="true"
             aria-label="Finished book"
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: "26rem" }}
           >
-            <h3 style={{ marginTop: 0 }}>You finished this book.</h3>
-            <p style={{ fontFamily: "var(--reader-serif)", color: "var(--reader-fg)", lineHeight: 1.5 }}>
-              Archive <strong>{title || "Untitled"}</strong>? Archived books are
-              hidden from your main library but stay accessible under
-              <em> Library → Archived</em>.
+            <h3>You finished this book.</h3>
+            <p>
+              Archive <strong>{title || "Untitled"}</strong>? Archived books are hidden from your main library but stay accessible under <em>Library → Archived</em>.
             </p>
-            <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", marginTop: "1rem", flexWrap: "wrap" }}>
-              <button className="btn-ghost" onClick={onDismissFinish} disabled={archiveBusy}>Not now</button>
-              <button className="btn-primary" onClick={onArchive} disabled={archiveBusy}>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-ghost" onClick={onDismissFinish} disabled={archiveBusy}>Not now</button>
+              <button type="button" className="btn btn-primary" onClick={onArchive} disabled={archiveBusy}>
                 {archiveBusy ? "Archiving…" : "Archive"}
               </button>
             </div>
@@ -607,3 +797,17 @@ export default function Reader({
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function parsePx(s: string) { return parseFloat(s) || 0; }
+
+function roman(n: number): string {
+  if (n < 1 || n > 3999) return String(n);
+  const table: Array<[number, string]> = [
+    [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
+    [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
+    [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+  ];
+  let out = "";
+  for (const [v, s] of table) {
+    while (n >= v) { out += s; n -= v; }
+  }
+  return out;
+}

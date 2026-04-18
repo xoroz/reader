@@ -21,7 +21,8 @@ export async function middleware(request: NextRequest) {
     pathname === "/icon.svg" ||
     pathname === "/manifest.json" ||
     pathname === "/manifest.webmanifest" ||
-    pathname === "/sw.js"
+    pathname === "/sw.js" ||
+    pathname === "/privacy"
   ) return NextResponse.next();
 
   const token = request.cookies.get(COOKIE_NAME)?.value;

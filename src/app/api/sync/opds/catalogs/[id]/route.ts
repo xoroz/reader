@@ -10,7 +10,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = authenticateSync(req);
+  const auth = await authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const { id } = await params;
   await q(`DELETE FROM opds_catalogs WHERE id = $1 AND owner_email = $2`, [id, auth.email]);

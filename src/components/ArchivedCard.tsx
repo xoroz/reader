@@ -6,11 +6,20 @@ import { apiFetch } from "@/lib/csrf-client";
 
 const BP = process.env.NEXT_PUBLIC_BASE_PATH || "/Reader";
 
-// Slim variant of LibraryCard for /archived. No ingest-status polling (every
-// archived book is necessarily "ready") and the primary action is "Unarchive"
-// rather than "Delete" — so the separate component keeps both screens small.
-export default function ArchivedCard({ id, title, author, wordCount, chapterIdx, chapterCount, hasCover }: {
+/** Archived book row — same shape as LibraryCard but the trailing menu offers
+ *  Unarchive / Delete instead of Archive. */
+export default function ArchivedCard({
+  id,
+  index,
+  title,
+  author,
+  wordCount,
+  chapterIdx,
+  chapterCount,
+  hasCover,
+}: {
   id: string;
+  index: number;
   title: string | null;
   author: string | null;
   wordCount: number | null;
@@ -21,84 +30,106 @@ export default function ArchivedCard({ id, title, author, wordCount, chapterIdx,
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [coverOk, setCoverOk] = useState(hasCover);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   async function onUnarchive(e: React.MouseEvent) {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     setBusy(true);
+    setMenuOpen(false);
     try {
       const res = await apiFetch(`${BP}/api/books/${id}/unarchive`, { method: "POST" });
       if (!res.ok) throw new Error(await res.text());
       router.refresh();
-    } catch (err: any) { alert(`Unarchive failed: ${err.message}`); setBusy(false); }
+    } catch (err: any) {
+      alert(`Unarchive failed: ${err.message}`);
+      setBusy(false);
+    }
   }
 
   async function onDelete(e: React.MouseEvent) {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     if (!confirm(`Delete "${title || "Untitled"}" permanently?`)) return;
     setBusy(true);
+    setMenuOpen(false);
     try {
       const res = await apiFetch(`${BP}/api/books/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error(await res.text());
       router.refresh();
-    } catch (err: any) { alert(`Delete failed: ${err.message}`); setBusy(false); }
+    } catch (err: any) {
+      alert(`Delete failed: ${err.message}`);
+      setBusy(false);
+    }
   }
 
   const displayTitle = (title || "Untitled").replace(/\s+/g, " ").trim();
-  const progressPct = chapterIdx != null && chapterCount ? Math.min(100, Math.round((chapterIdx / chapterCount) * 100)) : 0;
+  const progressPct = chapterIdx != null && chapterCount
+    ? Math.min(100, Math.round((chapterIdx / chapterCount) * 100))
+    : 0;
+  const pages = wordCount ? Math.max(1, Math.round(wordCount / 250)) : null;
+  const numLabel = String(index + 1).padStart(3, "0");
 
   return (
     <Link
       href={`/book/${id}`}
-      className="lib-card"
-      style={{ opacity: busy ? 0.5 : 0.85 }}
+      className="book-row"
+      style={{ opacity: busy ? 0.5 : 0.9 }}
       aria-label={`${displayTitle} (archived)`}
     >
-      <button
-        className="lib-del"
-        onClick={onUnarchive}
-        disabled={busy}
-        aria-label={busy ? "Unarchiving" : "Unarchive book"}
-        title="Unarchive"
-        style={{ right: 44 }}
+      <span className="n">{numLabel}</span>
+      <div
+        className="mini-cover cover"
+        style={{
+          ["--cover-bg" as any]: "linear-gradient(160deg,#3F3A34,#1c1a17)",
+          padding: coverOk ? 0 : "6px 4px",
+        }}
       >
-        ↺
-      </button>
-      <button
-        className="lib-del"
-        onClick={onDelete}
-        disabled={busy}
-        aria-label={busy ? "Deleting" : "Delete permanently"}
-        title="Delete permanently"
-      >
-        ×
-      </button>
-      <div className="lib-cover">
         {coverOk ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={`${BP}/api/books/${id}/cover`}
-            alt={displayTitle ? `${displayTitle} cover` : "Book cover"}
+            alt=""
             loading="lazy"
             decoding="async"
-            width={180}
-            height={270}
             onError={() => setCoverOk(false)}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
           />
-        ) : (
-          <div className="lib-cover-fallback">
-            <span className="lib-cover-title">{displayTitle.slice(0, 60)}</span>
-          </div>
-        )}
+        ) : null}
       </div>
-      <div className="lib-info">
-        <div className="lib-title" title={displayTitle}>{displayTitle}</div>
-        {author ? <div className="lib-author" title={author}>{author}</div> : null}
-        <div className="lib-foot">
-          <div className="lib-meta">
-            <span>Archived</span>
-            <span>{chapterCount ? `${progressPct}% · ${chapterCount} ch` : `${(wordCount || 0).toLocaleString()} words`}</span>
-          </div>
+      <div style={{ minWidth: 0 }}>
+        <h3 className="tl" style={{ overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+          {displayTitle}
+        </h3>
+        <div className="at" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {author || ""}{pages ? ` · ${pages} pages` : ""}
         </div>
+      </div>
+      <div className="prog" aria-label={`${progressPct}% read`}>
+        <div className="bar"><div className="bar-fill" style={{ width: `${progressPct}%` }} /></div>
+        <span className="p">{progressPct > 0 ? `${progressPct}%` : "—"}</span>
+      </div>
+      <div className="meta"><span>Archived</span></div>
+      <div
+        style={{ position: "relative" }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      >
+        <button
+          type="button"
+          className="menu"
+          aria-label={`Actions for ${displayTitle}`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen((v) => !v); }}
+        >
+          <svg className="icn" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="18" cy="12" r="1" /></svg>
+        </button>
+        {menuOpen ? (
+          <div className="row-menu" role="menu">
+            <button type="button" role="menuitem" onClick={onUnarchive} disabled={busy}>Unarchive</button>
+            <button type="button" role="menuitem" className="danger" onClick={onDelete} disabled={busy}>Delete permanently…</button>
+          </div>
+        ) : null}
       </div>
     </Link>
   );

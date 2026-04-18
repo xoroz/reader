@@ -10,6 +10,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
 
+function registrableDomain(host: string): string {
+  // Crude eTLD+1: last two labels. Good enough for .org/.com/.net catalogs.
+  const parts = host.toLowerCase().split('.');
+  if (parts.length < 2) return host.toLowerCase();
+  return parts.slice(-2).join('.');
+}
+
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "/opt/apps/Reader/uploads";
 const MAX_BYTES = Number(process.env.MAX_UPLOAD_MB || "60") * 1024 * 1024;
 
@@ -35,7 +42,7 @@ function extFromType(contentType: string | null, urlStr: string): string {
 // POST /api/sync/opds/import
 // Body: { catalogId, url (acquisition), title?, author? }
 export async function POST(req: NextRequest) {
-  const auth = authenticateSync(req);
+  const auth = await authenticateSync(req);
   if (!auth.ok) return NextResponse.json({ error: auth.msg }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
   const { catalogId, url: acqUrl, title, author } = body || {};
@@ -52,7 +59,7 @@ export async function POST(req: NextRequest) {
   try { target = new URL(String(acqUrl), cat.url); } catch { return NextResponse.json({ error: "Bad url" }, { status: 400 }); }
   try {
     const catUrl = new URL(cat.url);
-    if (target.host !== catUrl.host || target.protocol !== catUrl.protocol) {
+    if (registrableDomain(target.host) !== registrableDomain(catUrl.host) || target.protocol !== catUrl.protocol) {
       return NextResponse.json({ error: "Cross-origin import blocked" }, { status: 400 });
     }
   } catch { return NextResponse.json({ error: "Bad saved catalog" }, { status: 400 }); }

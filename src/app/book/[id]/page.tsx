@@ -2,6 +2,7 @@ import { q } from "@/lib/db";
 import { requirePageEmail } from "@/lib/user";
 import { notFound } from "next/navigation";
 import Reader from "@/components/Reader";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -18,11 +19,19 @@ export default async function BookPage({ params }: { params: Promise<{ id: strin
   const book = books[0];
   if (book.status !== "ready") {
     return (
-      <main className="app-shell" style={{ textAlign: "center", padding: "var(--m3-space-8) var(--m3-space-3)", color: "var(--m3-on-surface-variant)" }}>
-        <p style={{ fontFamily: "var(--m3-font-serif)", fontSize: "1.2rem", lineHeight: 1.5 }}>
+      <main className="page" style={{ textAlign: "center", paddingTop: 96 }}>
+        <div className="mono" style={{ marginBottom: 12 }}>Status · {book.status}</div>
+        <h1 className="display" style={{ fontSize: "clamp(36px, 4vw, 52px)" }}>
           {book.status === "failed" ? "This book failed to extract." : "Still preparing this book…"}
+        </h1>
+        <p style={{ fontSize: 15, color: "var(--ink-2)", marginTop: 16 }}>
+          {book.status === "failed"
+            ? "Try re-uploading or downloading another copy."
+            : "We're parsing chapters and generating a cover. Hang tight — this usually takes a minute."}
         </p>
-        <div style={{ marginTop: "var(--m3-space-4)" }}><a href="/Reader" className="btn-ghost">← Library</a></div>
+        <div style={{ marginTop: 32 }}>
+          <Link href="/" className="btn btn-primary">← Library</Link>
+        </div>
       </main>
     );
   }
