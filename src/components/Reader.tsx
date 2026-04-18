@@ -6,6 +6,20 @@ import AudioPlayer, { type Voice } from "./AudioPlayer";
 
 const BP = process.env.NEXT_PUBLIC_BASE_PATH || "/Reader";
 
+let _prefsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function savePrefsDebounced(p: Prefs) {
+  if (typeof window === "undefined") return;
+  if (_prefsSaveTimer) clearTimeout(_prefsSaveTimer);
+  _prefsSaveTimer = setTimeout(() => {
+    fetch(`${BP}/api/prefs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(p),
+    }).catch(() => {});
+  }, 300);
+}
+
 // Inline Markdown renderer for body text. Tiny on purpose.
 const INLINE_MD_RE = /(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(`[^`\n]+`)|(\[[^\]]+\]\([^)]+\))/g;
 function renderInlineMd(text: string): React.ReactNode {
@@ -129,6 +143,7 @@ export default function Reader({
     r.setProperty("--reader-measure", `${prefs.measure * chPx}px`);
     r.setProperty("--reader-margins", prefs.margins + "rem");
     r.setProperty("--reader-serif", prefs.font);
+    savePrefsDebounced(prefs);
     return () => { delete b.dataset.view; };
   }, [prefs, ttsOn]);
 
