@@ -403,21 +403,28 @@ export default function Reader({
     setAiBusy(true);
     try {
       const sel = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
-      const excerpt = sel && sel.length > 16 ? sel : paragraphs.slice(0, 3).join("\n\n");
+      // Server contract: { phrase, context }. For a selection, the phrase is
+      // the selected text and context is the surrounding paragraph. With no
+      // selection we ask for a chapter summary — the server recognises the
+      // "summarize" prefix and swaps to its SUMMARY_SYSTEM prompt.
+      const phrase = sel && sel.length > 0
+        ? sel
+        : `Summarise chapter ${chapterIdx + 1}${chapter.title ? `: ${chapter.title}` : ""}`;
+      const context = sel
+        ? paragraphs.slice(0, 3).join("\n\n")
+        : paragraphs.slice(0, 6).join("\n\n");
       const res = await apiFetch(`${BP}/api/sync/ai/explain`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bookId,
-          chapterIdx,
-          selection: sel || "",
-          excerpt,
-          chapterTitle: chapter.title || null,
-        }),
+        body: JSON.stringify({ phrase, context }),
       });
-      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        try { const je = JSON.parse(txt); throw new Error(je.error || je.detail || txt); }
+        catch { throw new Error(txt || `HTTP ${res.status}`); }
+      }
       const j = await res.json();
-      setAiAnswer(j.answer || j.text || j.summary || JSON.stringify(j));
+      setAiAnswer(j.content || j.answer || j.text || j.summary || "");
     } catch (err: any) {
       // Fallback to a short canned placeholder so the popover renders
       // even when the AI backend isn't configured for this env.
