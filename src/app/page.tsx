@@ -91,7 +91,7 @@ export default async function Library({ searchParams }: { searchParams?: Promise
   const totalWords = rows.reduce((a, r) => a + (r.word_count || 0), 0);
   const hoursOfReading = Math.max(0, Math.round(totalWords / WPM / 60));
   const inProgress = rows
-    .filter((r) => r.status === "ready" && r.chapter_idx != null && r.chapter_count && r.chapter_idx > 0 && r.chapter_idx < r.chapter_count)
+    .filter((r) => r.status === "ready" && r.chapter_count && ((r.chapter_idx != null && r.chapter_idx > 0 && r.chapter_idx < r.chapter_count) || (r.progress_updated_at != null && (r.paragraph_idx ?? 0) > 0)))
     .sort((a, b) => {
       const at = a.progress_updated_at ? Date.parse(a.progress_updated_at) : 0;
       const bt = b.progress_updated_at ? Date.parse(b.progress_updated_at) : 0;

@@ -1187,15 +1187,21 @@ body[data-view="reader"] { overflow: hidden; }
   overflow: hidden;
   position: absolute;
   inset: 60px 0 64px 0;
-  column-width: var(--reader-measure);
+  /* Force exactly one column per paginated "page" so horizontal scrolling
+     by clientWidth always lands on a clean boundary. Without this, the
+     browser auto-fits 2-3 columns when the viewport is wide, and the
+     scroll-by-clientWidth step leaves neighbouring columns half-visible. */
+  column-count: 1;
   column-gap: 96px;
-  column-rule: 1px solid var(--line);
+  column-rule: none;
   column-fill: auto;
+  max-width: var(--reader-measure);
+  margin-left: auto;
+  margin-right: auto;
   list-style: none;
   text-wrap: pretty;
   hanging-punctuation: first last;
   scroll-behavior: smooth;
-  margin: 0;
 }
 
 @media (max-width: 1100px) {
