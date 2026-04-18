@@ -1987,3 +1987,60 @@ body[data-tts="true"] .reader-scroll p.tts-para-active {
 .lib-header-title { min-width: 0; flex: 1 1 auto; }
 .lib-header-sub { font-size: 13px; color: var(--ink-2); margin-top: 4px; font-family: var(--reader-mono); letter-spacing: 0.06em; text-transform: uppercase; }
 .lib-header-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+
+
+/* End-of-chapter navigation row — rendered in scroll mode after the last
+   paragraph. Previously a single tiny outline button; now a two-slot grid
+   with full chapter titles so the next step is always discoverable. */
+.chapter-nav-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 3rem 0 5rem;
+  font-family: var(--reader-sans);
+}
+.chapter-nav-row > span { /* empty placeholder to keep grid slots when no prev/next exists */
+  display: block;
+}
+.chapter-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.25;
+  width: 100%;
+}
+.chapter-nav-btn .chapter-nav-lbl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.chapter-nav-btn .chapter-nav-hint {
+  font-family: var(--reader-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.chapter-nav-btn .chapter-nav-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chapter-nav-next {
+  justify-content: space-between;
+  text-align: right;
+}
+.chapter-nav-next .chapter-nav-lbl { align-items: flex-end; }
+@media (max-width: 640px) {
+  .chapter-nav-row { grid-template-columns: 1fr; margin: 2rem 0 4rem; }
+  .chapter-nav-next .chapter-nav-lbl { align-items: flex-start; }
+  .chapter-nav-next { text-align: left; }
+}

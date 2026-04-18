@@ -328,11 +328,19 @@ export default function Reader({
     touch.current = { x: t.clientX, y: t.clientY, t: Date.now() };
   }
   function onTouchEnd(e: React.TouchEvent) {
-    if (!touch.current || prefs.mode !== "paginated") { touch.current = null; return; }
+    if (!touch.current) { touch.current = null; return; }
     const t = e.changedTouches[0];
     const dx = t.clientX - touch.current.x;
     const dy = t.clientY - touch.current.y;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 2) { if (dx < 0) next(); else prev(); }
+    const dt = Date.now() - touch.current.t;
+    // Chapter-turn swipe: horizontal motion dominates vertical, minimum
+    // distance 60px (was 40), and fast-ish (under 700ms) so a slow drag
+    // while trying to select text does not flip chapters. Works in both
+    // scroll and paginated modes — scroll mode previously had no affordance
+    // besides the tiny "Next chapter" button at the end of the chapter.
+    if (dt < 700 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 2.5) {
+      if (dx < 0) next(); else prev();
+    }
     touch.current = null;
   }
 
@@ -599,9 +607,26 @@ export default function Reader({
             </p>
           );
         })}
-        {prefs.mode === "scroll" && chapterIdx + 1 < chapters.length ? (
-          <div style={{ textAlign: "center", padding: "2rem 0", color: "var(--ink-2)", fontFamily: "var(--reader-sans)", fontSize: "0.85rem" }}>
-            <button type="button" className="btn btn-outline" onClick={next}>Next chapter →</button>
+        {prefs.mode === "scroll" ? (
+          <div className="chapter-nav-row">
+            {chapterIdx > 0 ? (
+              <button type="button" className="btn btn-outline chapter-nav-btn" onClick={prev}>
+                <span aria-hidden>←</span>
+                <span className="chapter-nav-lbl">
+                  <span className="chapter-nav-hint">Previous</span>
+                  <span className="chapter-nav-title">{chapters[chapterIdx - 1]?.title || `Chapter ${chapterIdx}`}</span>
+                </span>
+              </button>
+            ) : <span />}
+            {chapterIdx + 1 < chapters.length ? (
+              <button type="button" className="btn btn-primary chapter-nav-btn chapter-nav-next" onClick={next}>
+                <span className="chapter-nav-lbl">
+                  <span className="chapter-nav-hint">Next</span>
+                  <span className="chapter-nav-title">{chapters[chapterIdx + 1]?.title || `Chapter ${chapterIdx + 2}`}</span>
+                </span>
+                <span aria-hidden>→</span>
+              </button>
+            ) : <span />}
           </div>
         ) : null}
       </div>
