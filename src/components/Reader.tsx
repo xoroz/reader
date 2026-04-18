@@ -267,7 +267,10 @@ export default function Reader({
       if (pageIdx + 1 < pageCount) setPageIdx(pageIdx + 1);
       else if (chapterIdx + 1 < chapters.length) { setChapterIdx(chapterIdx + 1); setPageIdx(0); }
     } else {
-      if (chapterIdx + 1 < chapters.length) { setChapterIdx(chapterIdx + 1); columnRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }
+      if (chapterIdx + 1 < chapters.length) {
+        const target = columnRef.current?.querySelector<HTMLElement>(`#chapter-${chapterIdx + 1}`);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     }
   }
   function prev() {
@@ -275,7 +278,10 @@ export default function Reader({
       if (pageIdx > 0) setPageIdx(pageIdx - 1);
       else if (chapterIdx > 0) { setChapterIdx(chapterIdx - 1); setPageIdx(0); }
     } else {
-      if (chapterIdx > 0) { setChapterIdx(chapterIdx - 1); columnRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }
+      if (chapterIdx > 0) {
+        const target = columnRef.current?.querySelector<HTMLElement>(`#chapter-${chapterIdx - 1}`);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     }
   }
 
@@ -346,6 +352,13 @@ export default function Reader({
 
   const chapter = chapters[chapterIdx];
   const paragraphs = useMemo(() => chapter.text.split(/\n{2,}/).map(s => s.trim()).filter(Boolean), [chapter.text]);
+  // Continuous-scroll model: pre-split every chapter so scroll mode can
+  // render the entire book in one flow without remounting on chapter turn.
+  const allChapters = useMemo(() => chapters.map((c, i) => ({
+    idx: i,
+    title: c.title,
+    paragraphs: c.text.split(/\n{2,}/).map(s => s.trim()).filter(Boolean),
+  })), [chapters]);
   const titleAlreadyInBody = useMemo(() => {
     if (!chapter.title) return false;
     const norm = (s: string) => s.toLowerCase().replace(/^\s*(chapter|ch\.?)\s*[\divxlcdm]+[:.\s-]*/i, "").replace(/[^a-z0-9]+/g, " ").trim();
@@ -361,6 +374,45 @@ export default function Reader({
     return false;
   }, [chapter.title, paragraphs]);
   const isLastChapter = chapterIdx === chapters.length - 1;
+
+  // Continuous-scroll: watch which chapter's heading is nearest the top of
+  // the viewport and sync chapterIdx to it. Cheap: one IntersectionObserver
+  // keyed on the heading elements; triggers only on entry/exit.
+  useEffect(() => {
+    if (prefs.mode !== "scroll") return;
+    const el = columnRef.current;
+    if (!el) return;
+    // Delay a tick so the new DOM is mounted after a mode switch.
+    let cancelled = false;
+    const setup = () => {
+      if (cancelled) return;
+      const nodes = Array.from(el.querySelectorAll<HTMLElement>("[data-chapter-anchor]"));
+      if (!nodes.length) return;
+      const seen = new Map<number, number>(); // chapter idx -> top offset within el
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          const i = Number((e.target as HTMLElement).dataset.chapterAnchor);
+          if (!Number.isFinite(i)) continue;
+          if (e.isIntersecting) seen.set(i, (e.target as HTMLElement).offsetTop);
+          else seen.delete(i);
+        }
+        if (!seen.size) return;
+        // Pick the visible chapter whose anchor is closest to the current scrollTop.
+        const top = el.scrollTop;
+        let best = chapterIdx;
+        let bestDist = Number.POSITIVE_INFINITY;
+        for (const [i, off] of seen) {
+          const d = Math.abs(off - top);
+          if (d < bestDist) { bestDist = d; best = i; }
+        }
+        if (best !== chapterIdx) setChapterIdx(best);
+      }, { root: el, rootMargin: "-10% 0px -80% 0px", threshold: [0, 1] });
+      for (const n of nodes) io.observe(n);
+      return () => io.disconnect();
+    };
+    const t = setTimeout(setup, 50);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [prefs.mode, chapters.length, chapterIdx]);
 
   // Finish detection.
   useEffect(() => {
@@ -396,8 +448,16 @@ export default function Reader({
     paragraphIdxRef.current = 0;
     setChapterIdx(i);
     setPageIdx(0);
-    columnRef.current?.scrollTo({ top: 0 });
     setOverlay("none");
+    if (prefs.mode === "scroll") {
+      // Continuous scroll: smooth-scroll to the chapter anchor so context
+      // (previous chapter ending) stays visible above.
+      const target = columnRef.current?.querySelector<HTMLElement>(`#chapter-${i}`);
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      else columnRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      columnRef.current?.scrollTo({ top: 0 });
+    }
   }
 
   const progressPct = prefs.mode === "paginated"
@@ -586,7 +646,7 @@ export default function Reader({
               });
             })()}
           </ul>
-        ) : paragraphs.map((p, i) => {
+        ) : prefs.mode === "paginated" ? paragraphs.map((p, i) => {
           const { tag, content, marker } = classifyParagraph(p);
           const cls = ttsOn && activePara === i ? "tts-para-active" : undefined;
           if (tag === "h2") return <h2 key={i} data-p-idx={i} className={cls}>{renderInlineMd(content)}</h2>;
@@ -606,29 +666,48 @@ export default function Reader({
               ) : null}
             </p>
           );
-        })}
-        {prefs.mode === "scroll" ? (
-          <div className="chapter-nav-row">
-            {chapterIdx > 0 ? (
-              <button type="button" className="btn btn-outline chapter-nav-btn" onClick={prev}>
-                <span aria-hidden>←</span>
-                <span className="chapter-nav-lbl">
-                  <span className="chapter-nav-hint">Previous</span>
-                  <span className="chapter-nav-title">{chapters[chapterIdx - 1]?.title || `Chapter ${chapterIdx}`}</span>
-                </span>
-              </button>
-            ) : <span />}
-            {chapterIdx + 1 < chapters.length ? (
-              <button type="button" className="btn btn-primary chapter-nav-btn chapter-nav-next" onClick={next}>
-                <span className="chapter-nav-lbl">
-                  <span className="chapter-nav-hint">Next</span>
-                  <span className="chapter-nav-title">{chapters[chapterIdx + 1]?.title || `Chapter ${chapterIdx + 2}`}</span>
-                </span>
-                <span aria-hidden>→</span>
-              </button>
-            ) : <span />}
-          </div>
-        ) : null}
+        }) : (
+          /* Continuous scroll: every chapter in one flow. The heading for
+             each chapter carries data-chapter-anchor so the IntersectionObserver
+             above can sync chapterIdx as the reader scrolls. */
+          allChapters.map((ch) => {
+            const nodes: React.ReactNode[] = [];
+            const headingTitle = ch.title?.trim() || `Chapter ${ch.idx + 1}`;
+            nodes.push(
+              <h1
+                key={`h-${ch.idx}`}
+                className="chapter-heading-inline"
+                data-chapter-anchor={ch.idx}
+                id={`chapter-${ch.idx}`}
+              >
+                {headingTitle}
+              </h1>
+            );
+            ch.paragraphs.forEach((p, i) => {
+              const { tag, content, marker } = classifyParagraph(p);
+              const key = `${ch.idx}-${i}`;
+              if (tag === "h2") { nodes.push(<h2 key={key}>{renderInlineMd(content)}</h2>); return; }
+              if (tag === "h3") { nodes.push(<h3 key={key}>{renderInlineMd(content)}</h3>); return; }
+              if (tag === "h4") { nodes.push(<h4 key={key}>{renderInlineMd(content)}</h4>); return; }
+              if (tag === "li") {
+                nodes.push(
+                  <p key={key} className="reader-li" style={{ hyphens: prefs.hyphenate ? "auto" : "manual", WebkitHyphens: prefs.hyphenate ? "auto" : "manual" } as React.CSSProperties}>
+                    <span className="reader-li-marker">{marker}</span>
+                    <span>{renderInlineMd(content)}</span>
+                  </p>
+                );
+                return;
+              }
+              nodes.push(
+                <p key={key} style={{ hyphens: prefs.hyphenate ? "auto" : "manual", WebkitHyphens: prefs.hyphenate ? "auto" : "manual" } as React.CSSProperties}>
+                  {renderInlineMd(content)}
+                </p>
+              );
+            });
+            return nodes;
+          })
+        )}
+
       </div>
 
       {/* Rails (desktop hover prev/next) */}

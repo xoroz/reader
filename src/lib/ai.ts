@@ -9,12 +9,23 @@ export async function cleanupChunk(rawText: string, hint: string): Promise<{ cha
 {"chapters":[{"title":"optional string","paragraphs":["paragraph 1","paragraph 2"]}]}
 
 Rules:
-- Keep only: the book title (+ subtitle), the author, a TABLE OF CONTENTS if one is present, a Prologue / Foreword / Preface / Introduction if it's authored by the actual author of the book, and the main body (Chapter 1 onward). DROP everything else: copyright page, ISBN block, dedication page if brief and boilerplate (<5 words), "also by the author" lists, publisher address, Library of Congress cataloging, printing history, endorsements/blurbs from other authors, epigraphs from *other* works' front matter, translator's notes unless substantive, "About the Publisher", marketing copy, preview chapters of other books, back-cover blurbs.
-- Keep the Table of Contents as a single paragraph or a list, intact, as a chapter titled "Contents" if present.
+- Keep only: the book title (+ subtitle), the author, a TABLE OF CONTENTS / Índice / Sumário / Spis treści / Sommaire / Inhalt / Indice if present, a Prologue / Prólogo / Prólogo / Prologue / Prolog / Prologo / Prolog / Proloog (or Foreword / Preface / Introduction — the author's own front matter) if it's authored by the actual author of the book, and the main body (first Chapter / Capítulo / Capitolo / Chapitre / Kapitel / Rozdział / Hoofdstuk onward). DROP everything else regardless of the language it's written in: copyright page, ISBN block, dedication page if brief and boilerplate (<5 words), "also by the author" / "del mismo autor" / "do mesmo autor" / "du même auteur" / "vom selben Autor" / "dello stesso autore" lists, publisher address, Library of Congress / Biblioteca Nacional cataloging, printing history, endorsements / reseñas from other authors, epigraphs from *other* works' front matter, translator's notes unless substantive, "About the Publisher" / "Sobre el editor" / "Sobre o editor", marketing copy, preview chapters of other books, back-cover blurbs.
+- Keep the Table of Contents (Índice / Sumário / Spis treści / Sommaire / Inhalt / Indice / Inhoudsopgave) as a single paragraph or a list, intact, as a chapter titled "Contents" (always in English regardless of source language — the Reader UI keys on that title). If present.
 - Remove running headers, footers, page numbers, and copyright boilerplate.
 - Merge hyphenated line-breaks (e.g. "exam-\\nple" -> "example").
 - Join lines that belong to the same paragraph; keep paragraph breaks.
-- Detect chapter starts from clear cues ("Chapter 1", "CHAPTER I", "Prologue", numeric section, centered bold heading) and use them as chapters. If no chapters detected, put everything in one chapter with no title.
+- Detect chapter starts from clear cues IN THE BOOK'S OWN LANGUAGE and use them as chapters. Recognise at minimum:
+    * English: "Chapter 1", "CHAPTER I", "Prologue", "Preface", "Foreword", "Introduction", "Epilogue", "Part One".
+    * Spanish: "Capítulo 1", "CAPÍTULO I", "Prólogo", "Prefacio", "Introducción", "Epílogo", "Parte Primera", "Parte I".
+    * Portuguese: "Capítulo 1", "Prólogo", "Prefácio", "Introdução", "Epílogo", "Parte Um".
+    * French: "Chapitre 1", "CHAPITRE I", "Prologue", "Préface", "Avant-propos", "Introduction", "Épilogue", "Première partie".
+    * German: "Kapitel 1", "KAPITEL I", "Prolog", "Vorwort", "Einleitung", "Einführung", "Nachwort", "Epilog", "Erster Teil".
+    * Italian: "Capitolo 1", "CAPITOLO I", "Prologo", "Prefazione", "Introduzione", "Epilogo", "Parte prima".
+    * Polish: "Rozdział 1", "ROZDZIAŁ I", "Prolog", "Przedmowa", "Wstęp", "Wprowadzenie", "Epilog", "Część pierwsza".
+    * Dutch: "Hoofdstuk 1", "Proloog", "Voorwoord", "Inleiding", "Epiloog", "Deel één".
+    * Generic: a standalone centered bold heading, a numeric section (I. II. III.) on its own line, or a line consisting of just a Roman numeral / an Arabic numeral / a chapter-sized decorative glyph.
+  Always preserve the chapter heading in the title field USING THE BOOK'S ORIGINAL LANGUAGE AND CAPITALISATION. Do not translate "Capítulo 3" to "Chapter 3".
+  If no chapters are detected, put everything in one chapter with no title.
 - PRESERVE STRUCTURE using a minimal Markdown subset inside paragraph strings. This is mandatory for any heading visible in the source — do not flatten visual hierarchy into plain prose.
     * A section heading inside a chapter → start the paragraph with "## " (e.g. "## Part One: Awakening").
     * A sub-heading → "### "; a minor label → "#### ".
@@ -103,9 +114,9 @@ export function normalizeText(text: string): string {
 export function isBoilerplateParagraph(p: string): boolean {
   const t = p.trim();
   if (!t) return true;
-  if (t.length < 350 && /\bcopyright\b|©|\(c\)\s*\d{4}|all rights reserved|no part of this (book|publication)|printed in (the )?(united states|great britain|usa|u\.s\.a)|first published|isbn[- ]?1?0?[:]?\s*\d|library of congress cataloging|a cip catalog|manufactured in|cataloging-in-publication|cataloguing-in-publication|publisher'?s note|published by|a division of|penguin books|random house|harpercollins|simon\s*&?\s*schuster|printed and bound|typeset in|typeset by|set in \w+ type|printing\s*:?\s*\d+\s*\d+\s*\d+|this book is a work of (non)?fiction|\bp\.\s*cm\b|printing history|distributed by|reprinted by arrangement|electronic edition/i.test(t)) return true;
+  if (t.length < 350 && /\bcopyright\b|©|\(c\)\s*\d{4}|all rights reserved|todos los derechos reservados|todos os direitos reservados|tous droits réservés|alle rechte vorbehalten|tutti i diritti riservati|wszelkie prawa zastrzeżone|alle rechten voorbehouden|no part of this (book|publication)|ninguna parte de (este|esta) (libro|publicación|obra)|nenhuma parte (deste|desta) (livro|publicação|obra)|aucune partie de ce(tte)? (livre|publication|œuvre)|kein teil dieses (buches|werkes)|nessuna parte di questa (pubblicazione|opera)|żadna część tej (książki|publikacji)|printed in (the )?(united states|great britain|usa|u\.s\.a)|impreso en|impresso em|imprimé en|gedruckt in|stampato in|wydrukowano w|first published|isbn[- ]?1?0?[:]?\s*\d|library of congress cataloging|a cip catalog|manufactured in|cataloging-in-publication|cataloguing-in-publication|publisher'?s note|published by|a division of|penguin books|random house|harpercollins|simon\s*&?\s*schuster|printed and bound|typeset in|typeset by|set in \w+ type|printing\s*:?\s*\d+\s*\d+\s*\d+|this book is a work of (non)?fiction|\bp\.\s*cm\b|printing history|distributed by|reprinted by arrangement|electronic edition/i.test(t)) return true;
   // ALL CAPS boilerplate line (common for trademark/legal)
-  if (t === t.toUpperCase() && t.length < 200 && /ALL RIGHTS RESERVED|COPYRIGHT|TRADEMARK|PUBLISHED|PRINTED|FIRST EDITION/.test(t)) return true;
+  if (t === t.toUpperCase() && t.length < 200 && /ALL RIGHTS RESERVED|TODOS LOS DERECHOS RESERVADOS|TODOS OS DIREITOS RESERVADOS|TOUS DROITS RÉSERVÉS|ALLE RECHTE VORBEHALTEN|TUTTI I DIRITTI RISERVATI|WSZELKIE PRAWA ZASTRZEŻONE|COPYRIGHT|TRADEMARK|PUBLISHED|PRINTED|FIRST EDITION|PRIMERA EDICIÓN|PREMIÈRE ÉDITION|ERSTAUSGABE/.test(t)) return true;
   // Lone ISBN
   if (/^\s*isbn[- ]?1?[03]?:?\s*[\d\- Xx]+\s*$/i.test(t)) return true;
   // Printing line like "10 9 8 7 6 5 4 3 2 1"
@@ -121,7 +132,7 @@ export function dropBoilerplate(paragraphs: string[]): string[] {
 // or its body is dominated by copyright/legal/front-matter content.
 export function isCopyrightChapter(ch: { title?: string; paragraphs: string[] }): boolean {
   const title = (ch.title || "").toLowerCase();
-  if (/copyright|colophon|legal notice|imprint|publisher.{0,3}note|cataloging|cataloguing|publication data|edition notice/.test(title)) return true;
+  if (/copyright|derechos (reservados|de autor)|direitos (reservados|autorais)|tous droits réservés|urheberrecht|diritti (riservati|d.autore)|wszelkie prawa zastrzeżone|alle rechten voorbehouden|colophon|legal notice|aviso legal|impressum|imprint|pie de imprenta|publisher.{0,3}note|nota del editor|nota do editor|note de l.éditeur|cataloging|cataloguing|publication data|edition notice|créditos|créditos editoriais/.test(title)) return true;
   const paras = ch.paragraphs || [];
   if (!paras.length) return false;
   // Total chars > 4000 implies real chapter — keep
@@ -152,12 +163,14 @@ export function dropCopyrightChapters<T extends { title?: string; paragraphs: st
 export function dropExistingFrontMatter<T extends { title?: string; paragraphs: string[] }>(chapters: T[]): T[] {
   return chapters.filter((c) => {
     const title = (c.title || "").toLowerCase().trim();
-    if (/^(table of )?contents?$/.test(title)) return false;
-    if (/^(title page|cover|half[- ]title|frontispiece|bastard title|title)$/.test(title)) return false;
-    if (/^(dedication|epigraph|acknowledg(e)?ments?|about the author|also by )/i.test(title)) return false;
+    // Contents in many languages. Kept deliberately exact so prose like
+    // "brief contents" survives; only standalone TOC titles match.
+    if (/^(table of )?contents?$|^índice$|^índice general$|^sumário$|^sumario$|^spis treści$|^sommaire$|^inhalt(sverzeichnis)?$|^inhoudsopgave$|^indice$/.test(title)) return false;
+    if (/^(title page|cover|half[- ]title|frontispiece|bastard title|title|cubierta|portada|portadilla|couverture|umschlag|copertina|okładka|cobertura|kaft)$/.test(title)) return false;
+    if (/^(dedication|dedicatoria|dédicace|widmung|dedica|dedykacja|dedicatória|opdracht|epigraph|epígrafe|exergue|epigraf|epigraaf|acknowledg(e)?ments?|agradecimientos|agradecimentos|remerciements|danksagung|ringraziamenti|podziękowania|dankwoord|about the (author|translator)|sobre el (autor|traductor)|sobre o (autor|tradutor)|à propos de l.auteur|über den autor|sull.autore|o autorze|over de auteur|also by |del mismo autor|do mesmo autor|du même auteur|vom selben autor|dello stesso autore)/i.test(title)) return false;
     const body = c.paragraphs.join(" ").trim();
     // Tiny chapter whose title is mostly the book itself or front-matter noise
-    if (body.length < 200 && /title|cover|dedication|epigraph/i.test(title)) return false;
+    if (body.length < 200 && /title|cover|dedication|epigraph|cubierta|portada|portadilla|dedicatoria|dedicatória|couverture|umschlag|widmung|dedica|dedika|epígrafe|epigraf/i.test(title)) return false;
     return true;
   });
 }
@@ -179,7 +192,7 @@ export function buildTocChapter(
 ): { title: string; paragraphs: string[] } | null {
   const titles = bodyChapters
     .map((c) => (c.title || "").trim())
-    .filter((t) => t.length > 0 && !/^(title|contents|summary)$/i.test(t));
+    .filter((t) => t.length > 0 && !/^(title|contents|summary|índice|índice general|sumário|sumario|spis treści|sommaire|inhalt|inhaltsverzeichnis|inhoudsopgave|indice|titre|título|titolo|tytuł|titel|resumen|resumo|résumé|zusammenfassung|riassunto|streszczenie|samenvatting)$/i.test(t));
   if (titles.length < 2) return null;
   return { title: "Contents", paragraphs: [titles.join("\n")] };
 }

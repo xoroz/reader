@@ -2044,3 +2044,17 @@ body[data-tts="true"] .reader-scroll p.tts-para-active {
   .chapter-nav-next .chapter-nav-lbl { align-items: flex-start; }
   .chapter-nav-next { text-align: left; }
 }
+
+
+/* Continuous-scroll mode: chapter heading inline in the flow */
+.chapter-heading-inline {
+  font-family: var(--reader-serif);
+  font-weight: 500;
+  font-size: 1.75rem;
+  line-height: 1.15;
+  margin: 4rem 0 1.4rem;
+  scroll-margin-top: 90px;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.chapter-heading-inline:first-child { margin-top: 1rem; }
