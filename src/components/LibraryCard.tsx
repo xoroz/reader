@@ -280,10 +280,9 @@ export default function LibraryCard({
             <a
               href={`${BP}/api/books/${id}/original`}
               role="menuitem"
+              download
               onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }}
-            >
-              <button type="button" style={{ width: "100%", background: "transparent", padding: 0, font: "inherit", textAlign: "left" }}>Download EPUB</button>
-            </a>
+            >Download EPUB</a>
             <button
               type="button"
               role="menuitem"

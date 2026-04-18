@@ -652,17 +652,30 @@ h2.section {
   flex-direction: column;
   gap: 2px;
 }
-.row-menu button {
+.row-menu > button,
+.row-menu > a {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   text-align: left;
   padding: 8px 12px;
   font-size: 13px;
+  line-height: 1.2;
   color: var(--ink);
+  background: transparent;
+  border: 0;
   border-radius: 8px;
   font-family: var(--reader-sans);
+  font-weight: 400;
+  text-decoration: none;
+  cursor: pointer;
 }
-.row-menu button:hover { background: var(--paper-2); }
-.row-menu button.danger { color: var(--error); }
-.row-menu button.danger:hover { background: color-mix(in srgb, var(--error) 10%, transparent); }
+.row-menu > button:hover,
+.row-menu > a:hover { background: var(--paper-2); }
+.row-menu > button:disabled,
+.row-menu > a[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+.row-menu > button.danger { color: var(--error); }
+.row-menu > button.danger:hover { background: color-mix(in srgb, var(--error) 10%, transparent); }
 
 /* ---------- collection cards ---------- */
 .collections {
