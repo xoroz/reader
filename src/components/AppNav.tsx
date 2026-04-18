@@ -86,13 +86,15 @@ export default function AppNav({
               className="btn btn-primary"
               aria-label="Resume reading"
               onClick={(e) => {
+                const BP = process.env.NEXT_PUBLIC_BASE_PATH || "/Reader";
+                const href = resumeHref.startsWith(BP) ? resumeHref : BP + (resumeHref.startsWith("/") ? resumeHref : "/" + resumeHref);
                 // Force a full navigation — avoids a Next.js client-router
                 // quirk where a Link from library to /book/<id> can resolve
                 // to a stale route-tree when the book page was loaded in
                 // this tab before.
                 if (!resumeHref || resumeHref === "/") return;
                 e.preventDefault();
-                window.location.assign(resumeHref);
+                window.location.assign(href);
               }}
             >
               <svg className="icn" viewBox="0 0 24 24" style={{ width: 14, height: 14 }} aria-hidden><path d="M5 4v16l7-4 7 4V4z" /></svg>
