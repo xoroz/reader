@@ -256,7 +256,7 @@ export default function LibraryCard({
         {menuOpen ? (
           <div className="row-menu" role="menu">
             <a
-              href={`${BP}/api/books/${id}/download`}
+              href={`${BP}/api/books/${id}/original`}
               role="menuitem"
               onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }}
             >

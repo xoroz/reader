@@ -1,11 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { q } from "@/lib/db";
 import { authenticateSync } from "@/lib/sync-auth";
+import dns from "node:dns/promises";
+import net from "node:net";
 import { parseFeed } from "@/lib/opds-parse";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+function isPrivateAddress(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const p = ip.split('.').map(Number);
+    if (p[0] === 10 || p[0] === 127 || p[0] === 0) return true;
+    if (p[0] === 169 && p[1] === 254) return true;
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true;
+    if (p[0] >= 224) return true;
+    return false;
+  }
+  const lower = ip.toLowerCase();
+  if (lower === '::1' || lower === '::' || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80')) return true;
+  if (lower.startsWith('::ffff:')) {
+    const v4 = lower.slice(7);
+    if (net.isIPv4(v4)) return isPrivateAddress(v4);
+  }
+  return false;
+}
+
+async function guardHostSSRF(host: string): Promise<string | null> {
+  if (net.isIP(host)) return isPrivateAddress(host) ? `Host resolves to private address: ${host}` : null;
+  try {
+    const addrs = await dns.lookup(host, { all: true, verbatim: true });
+    for (const a of addrs) if (isPrivateAddress(a.address)) return `Host ${host} resolves to private address ${a.address}`;
+    return null;
+  } catch { return `DNS resolution failed for ${host}`; }
+}
 
 function registrableDomain(host: string): string {
   // Crude eTLD+1: last two labels. Good enough for .org/.com/.net catalogs.
@@ -40,6 +71,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Cross-origin browse blocked" }, { status: 400 });
     }
   } catch { return NextResponse.json({ error: "Bad saved catalog" }, { status: 400 }); }
+
+  const ssrfErr = await guardHostSSRF(targetUrl.hostname);
+  if (ssrfErr) return NextResponse.json({ error: ssrfErr }, { status: 400 });
 
   const headers: Record<string, string> = {
     "Accept": "application/atom+xml;profile=opds-catalog, application/atom+xml, application/xml, */*;q=0.1",

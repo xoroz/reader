@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import dns from "node:dns/promises";
+import net from "node:net";
 import { q } from "@/lib/db";
 import { authenticateSync } from "@/lib/sync-auth";
 import { resumeExtractForBook } from "@/lib/resume";
@@ -19,6 +21,51 @@ function registrableDomain(host: string): string {
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "/opt/apps/Reader/uploads";
 const MAX_BYTES = Number(process.env.MAX_UPLOAD_MB || "60") * 1024 * 1024;
+
+
+function isPrivateAddress(ip: string): boolean {
+  // IPv4 private / loopback / link-local / CGNAT / broadcast
+  if (net.isIPv4(ip)) {
+    const p = ip.split('.').map(Number);
+    if (p[0] === 10) return true;
+    if (p[0] === 127) return true;
+    if (p[0] === 169 && p[1] === 254) return true;
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true; // CGNAT, Tailscale
+    if (p[0] === 0) return true;
+    if (p[0] >= 224) return true; // multicast + reserved
+    return false;
+  }
+  const lower = ip.toLowerCase();
+  if (lower === '::1' || lower === '::') return true;
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // ULA
+  if (lower.startsWith('fe80')) return true; // link-local
+  // IPv4-mapped IPv6
+  if (lower.startsWith('::ffff:')) {
+    const v4 = lower.slice(7);
+    if (net.isIPv4(v4)) return isPrivateAddress(v4);
+  }
+  return false;
+}
+
+async function guardHostSSRF(host: string): Promise<string | null> {
+  // Reject literal private IPs first (skips DNS).
+  if (net.isIP(host)) {
+    return isPrivateAddress(host) ? `Host resolves to private address: ${host}` : null;
+  }
+  try {
+    const addrs = await dns.lookup(host, { all: true, verbatim: true });
+    for (const a of addrs) {
+      if (isPrivateAddress(a.address)) {
+        return `Host ${host} resolves to private address ${a.address}`;
+      }
+    }
+    return null;
+  } catch (e: any) {
+    return `DNS resolution failed for ${host}`;
+  }
+}
 
 function extFromType(contentType: string | null, urlStr: string): string {
   const ct = (contentType || "").split(";")[0].trim().toLowerCase();
@@ -63,6 +110,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Cross-origin import blocked" }, { status: 400 });
     }
   } catch { return NextResponse.json({ error: "Bad saved catalog" }, { status: 400 }); }
+
+  const ssrfErr = await guardHostSSRF(target.hostname);
+  if (ssrfErr) return NextResponse.json({ error: ssrfErr }, { status: 400 });
 
   const headers: Record<string, string> = { "Accept": "*/*", "User-Agent": "Reader/OPDS-sync" };
   if (cat.username && cat.password) {

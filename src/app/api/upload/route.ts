@@ -40,6 +40,40 @@ function normKey(title: string | null, author: string | null): string | null {
   return `${t}|${a}`;
 }
 
+
+// Cheap magic-byte sanity check. Books come in a small number of container
+// formats — PDF starts with %PDF, EPUB/DOCX are ZIP (PK), DOC is OLE (D0 CF 11 E0),
+// RTF is {\rtf, MOBI/AZW3 have a 68-byte PDB header with BOOKMOBI at offset 60.
+// Everything else we accept is plain text.
+function magicBytesOk(buf: Buffer, ext: string): boolean {
+  const e = ext.toLowerCase();
+  if (e === "pdf") return buf.length >= 4 && buf.slice(0, 4).toString("ascii") === "%PDF";
+  if (e === "epub" || e === "docx") {
+    return buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && (buf[2] === 0x03 || buf[2] === 0x05 || buf[2] === 0x07);
+  }
+  if (e === "doc") {
+    return buf.length >= 4 && buf[0] === 0xd0 && buf[1] === 0xcf && buf[2] === 0x11 && buf[3] === 0xe0;
+  }
+  if (e === "rtf") return buf.length >= 5 && buf.slice(0, 5).toString("ascii") === "{\\rtf";
+  if (e === "mobi" || e === "azw3") {
+    return buf.length >= 68 && (buf.slice(60, 68).toString("ascii") === "BOOKMOBI" || buf.slice(60, 68).toString("ascii") === "TEXtREAd");
+  }
+  // Text-ish formats: no magic; accept if it parses as UTF-8 and looks printable.
+  if (["txt", "md", "html", "htm"].includes(e)) {
+    const sample = buf.slice(0, Math.min(buf.length, 4096)).toString("utf8");
+    // reject if more than ~3% of characters are binary control bytes
+    let ctrl = 0;
+    for (let i = 0; i < sample.length; i++) {
+      const c = sample.charCodeAt(i);
+      if (c < 9 || (c > 13 && c < 32) || c === 127) ctrl++;
+    }
+    return ctrl / Math.max(1, sample.length) < 0.03;
+  }
+  // Unknown extension — err on the side of accepting (caller already
+  // filters by extension at the UI).
+  return true;
+}
+
 export async function POST(req: NextRequest) {
   const proxySecret = process.env.PROXY_SECRET;
   if (proxySecret && req.headers.get("x-proxy-secret") !== proxySecret) {
@@ -54,6 +88,13 @@ export async function POST(req: NextRequest) {
   if (file.size > MAX_BYTES) return NextResponse.json({ error: `File too large (> ${process.env.MAX_UPLOAD_MB || 60}MB)` }, { status: 413 });
 
   const buf = Buffer.from(await file.arrayBuffer());
+  const declaredExt = (file.name.match(/\.([a-z0-9]{2,5})$/i)?.[1] || "").toLowerCase();
+  if (!magicBytesOk(buf, declaredExt)) {
+    return NextResponse.json(
+      { error: `File contents don't match its .${declaredExt} extension` },
+      { status: 415 },
+    );
+  }
   const contentHash = crypto.createHash("sha256").update(buf).digest("hex");
 
   const existingByBytes = await q<{ id: string; title: string | null }>(
