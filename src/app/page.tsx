@@ -71,6 +71,12 @@ export default async function Library({ searchParams }: { searchParams?: Promise
        WHERE b.owner_email = $1 AND b.archived = false ORDER BY b.created_at DESC`,
     [email]
   );
+  const prefsRows = await q<{ json: any }>(
+    `SELECT json FROM prefs WHERE owner_email = $1`,
+    [email]
+  );
+  const kindleEnabled: boolean = Boolean(prefsRows[0]?.json?.kindleEmail);
+
   const archivedCountRows = await q<{ c: number }>(
     `SELECT COUNT(*)::int AS c FROM books WHERE owner_email = $1 AND archived = true`,
     [email]
@@ -222,7 +228,7 @@ export default async function Library({ searchParams }: { searchParams?: Promise
                 const finished = !!(r.chapter_count && r.chapter_idx != null && r.chapter_idx >= r.chapter_count);
                 const mins = minutesLeft(r.chapter_idx, r.chapter_count, r.word_count);
                 return (
-                  <LibraryCard
+                  <LibraryCard kindleEnabled={kindleEnabled}
                     key={r.id}
                     id={r.id}
                     index={i}

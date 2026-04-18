@@ -24,6 +24,7 @@ const PREF_SCHEMA: Record<string, "string" | "number" | "boolean"> = {
   justify: "boolean",
   hyphenate: "boolean",
   ttsVoice: "string",
+  kindleEmail: "string",
 };
 const STRING_MAX = 120;
 

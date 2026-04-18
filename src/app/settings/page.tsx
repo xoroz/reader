@@ -2,6 +2,7 @@ import Link from "next/link";
 import { q } from "@/lib/db";
 import { requirePageEmail } from "@/lib/user";
 import AppNav from "@/components/AppNav";
+import KindleSettingsClient from "./KindleSettingsClient";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,12 @@ type Item = { href: string; label: string; desc: string };
 
 export default async function SettingsPage() {
   const email = await requirePageEmail();
+  const prefsRows = await q<{ json: any }>(
+    `SELECT json FROM prefs WHERE owner_email = $1`,
+    [email]
+  );
+  const kindleEmail: string = (prefsRows[0]?.json?.kindleEmail as string) || "";
+
   const archived = await q<{ c: number }>(
     `SELECT COUNT(*)::int AS c FROM books WHERE owner_email = $1 AND archived = true`,
     [email]
@@ -33,6 +40,8 @@ export default async function SettingsPage() {
             Signed in as <strong>{email}</strong>. Typography and theme live in the reader's Aa button — everything else is here.
           </p>
         </section>
+
+        <KindleSettingsClient initialEmail={kindleEmail} />
 
         <ul className="settings-list">
           {items.map((it) => (

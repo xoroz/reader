@@ -27,6 +27,7 @@ export default function LibraryCard({
   ingestDetail,
   estimatedMinutes,
   finished,
+  kindleEnabled,
 }: {
   id: string;
   index: number;
@@ -42,6 +43,7 @@ export default function LibraryCard({
   ingestDetail?: string | null;
   estimatedMinutes?: number | null;
   finished?: boolean;
+  kindleEnabled?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -117,6 +119,26 @@ export default function LibraryCard({
       setBusy(false);
     }
   }, [id, router]);
+
+  const onSendToKindle = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    setMenuOpen(false);
+    if (!kindleEnabled) {
+      alert("Add your Kindle address in Settings first.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await apiFetch(`${BP}/api/books/${id}/send-to-kindle`, { method: "POST" });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+      alert(`Sent to ${j.kindleEmail || "your Kindle"} (${Math.round((j.bytes || 0) / 1024)} KB, ${j.chapters || 0} chapters). It may take a few minutes to appear.`);
+    } catch (err: any) {
+      alert(`Send failed: ${err?.message || err}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [id, kindleEnabled]);
 
   const onDelete = useCallback(async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -262,6 +284,15 @@ export default function LibraryCard({
             >
               <button type="button" style={{ width: "100%", background: "transparent", padding: 0, font: "inherit", textAlign: "left" }}>Download EPUB</button>
             </a>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onSendToKindle}
+              disabled={busy || !kindleEnabled}
+              title={kindleEnabled ? "Email a formatted EPUB to your Kindle" : "Set your Kindle address in Settings first"}
+            >
+              Send to Kindle
+            </button>
             <button type="button" role="menuitem" onClick={onArchive} disabled={busy}>Archive</button>
             <button type="button" role="menuitem" className="danger" onClick={onDelete} disabled={busy}>Delete…</button>
           </div>
