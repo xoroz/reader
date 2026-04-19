@@ -30,6 +30,7 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
   const [elapsed, setElapsed] = useState(0);
   const [dur, setDur] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const retriedSrcsRef = useRef<Set<string>>(new Set());
   const currentUrlRef = useRef<string | null>(null);
   const nextBlobRef = useRef<{ url: string; part: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -210,7 +211,39 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
         onTimeUpdate={(e) => setElapsed((e.target as HTMLAudioElement).currentTime)}
         onDurationChange={(e) => setDur((e.target as HTMLAudioElement).duration || 0)}
         onEnded={onEnded}
-        preload="auto"
+        onError={(e) => {
+          const a = e.target as HTMLAudioElement;
+          // Empty/zero-duration error = we set src="" ourselves on cleanup; ignore.
+          if (!a.src || a.src === window.location.href) return;
+          const me = a.error;
+          const reason =
+            me?.code === 1 ? "aborted" :
+            me?.code === 2 ? "network dropped mid-stream" :
+            me?.code === 3 ? "audio decode failed" :
+            me?.code === 4 ? "format not supported or partial download" :
+            "unknown";
+          // Retry once per src: append a cache-buster and re-fetch.
+          const src = a.src;
+          if (!retriedSrcsRef.current.has(src)) {
+            retriedSrcsRef.current.add(src);
+            setError(`Retrying — ${reason}…`);
+            // Small delay + fresh URL so Chrome re-requests the resource.
+            const u = new URL(src);
+            u.searchParams.set("_retry", String(Date.now()));
+            setTimeout(() => {
+              if (audioRef.current) {
+                audioRef.current.src = u.toString();
+                audioRef.current.load();
+                audioRef.current.play().catch(() => setError(`Audio failed: ${reason}. Tap play to try again.`));
+              }
+            }, 500);
+          } else {
+            setError(`Audio failed: ${reason}. Tap play to try again.`);
+            setPlaying(false);
+            setLoading(false);
+          }
+        }}
+        preload="metadata"
       />
       <div className="tts-row">
         <button className="tts-play" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"}>
