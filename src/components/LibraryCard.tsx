@@ -122,21 +122,32 @@ export default function LibraryCard({
     }
   }, [id, router]);
 
+  const [kindleToast, setKindleToast] = useState<{kind: "ok" | "err" | "sending"; msg: string} | null>(null);
+  useEffect(() => {
+    if (!kindleToast || kindleToast.kind === "sending") return;
+    const t = setTimeout(() => setKindleToast(null), kindleToast.kind === "ok" ? 6000 : 8000);
+    return () => clearTimeout(t);
+  }, [kindleToast]);
+
   const onSendToKindle = useCallback(async (e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation();
     setMenuOpen(false);
     if (!kindleEnabled) {
-      alert("Add your Kindle address in Settings first.");
+      setKindleToast({ kind: "err", msg: "Add your Kindle address in Settings first." });
       return;
     }
     setBusy(true);
+    setKindleToast({ kind: "sending", msg: "Building EPUB and sending to Kindle…" });
     try {
       const res = await apiFetch(`${BP}/api/books/${id}/send-to-kindle`, { method: "POST" });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
-      alert(`Sent to ${j.kindleEmail || "your Kindle"} (${Math.round((j.bytes || 0) / 1024)} KB, ${j.chapters || 0} chapters). It may take a few minutes to appear.`);
+      setKindleToast({
+        kind: "ok",
+        msg: `Sent to ${j.kindleEmail || "your Kindle"} · ${Math.round((j.bytes || 0) / 1024)} KB · ${j.chapters || 0} chapters. Takes a few minutes to appear.`,
+      });
     } catch (err: any) {
-      alert(`Send failed: ${err?.message || err}`);
+      setKindleToast({ kind: "err", msg: `Send failed: ${err?.message || err}` });
     } finally {
       setBusy(false);
     }
@@ -296,6 +307,22 @@ export default function LibraryCard({
             </button>
             <button type="button" role="menuitem" onClick={onArchive} disabled={busy}>Archive</button>
             <button type="button" role="menuitem" className="danger" onClick={onDelete} disabled={busy}>Delete…</button>
+          </div>
+        ) : null}
+        {kindleToast ? (
+          <div
+            className={`kindle-toast kt-${kindleToast.kind}`}
+            role="status"
+            aria-live="polite"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setKindleToast(null); }}
+          >
+            {kindleToast.kind === "sending" ? (
+              <span className="kt-spin" aria-hidden />
+            ) : (
+              <span className="kt-icon" aria-hidden>{kindleToast.kind === "ok" ? "✓" : "!"}</span>
+            )}
+            <span className="kt-msg">{kindleToast.msg}</span>
+            {kindleToast.kind !== "sending" ? <span className="kt-dismiss" aria-hidden>×</span> : null}
           </div>
         ) : null}
       </div>

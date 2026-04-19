@@ -64,7 +64,6 @@ function stepValue<T extends number>(step: Step, scale: readonly [T, T, T]): T {
 // Known typeface families the popover exposes as "fcard" options.
 const FONTS: Array<{ value: string; label: string; sample: string }> = [
   { value: '"Source Serif 4", "Iowan Old Style", Charter, Georgia, serif', label: "Source Serif", sample: "Aa" },
-  { value: '"Literata", "Iowan Old Style", Georgia, serif', label: "Literata", sample: "Aa" },
   { value: '"Inter", system-ui, sans-serif', label: "Inter", sample: "Aa" },
 ];
 

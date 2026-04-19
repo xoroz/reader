@@ -121,9 +121,15 @@ async function fromEpub(filePath: string, filename: string, report: ProgressFn):
         for (let i = 0; i < flow.length; i++) {
           const item = flow[i];
           const html: string = await new Promise((res, rej) => epub.getChapter(item.id, (e: any, t: string) => e ? rej(e) : res(t)));
-          const text = htmlToText(html);
+          const text = normalizeText(htmlToText(html));
           if (!text.trim()) continue;
-          chapters.push({ title: item.title, paragraphs: dropBoilerplate(splitParagraphs(text)) });
+          // The NCX/nav may list nested section headings under a chapter, and
+          // epub2 flattens them into the title joined by " • ". Keep only the
+          // top-level chapter label; the sub-headings survive in the body as
+          // their own <h2>/<h3>.
+          const rawTitle: string = (item.title || "").toString();
+          const title = rawTitle.split(/\s*[•·]\s*/)[0].trim() || undefined;
+          chapters.push({ title, paragraphs: dropBoilerplate(splitParagraphs(text).map(normalizeText).filter(Boolean)) });
           report(`Reading EPUB chapters (${i + 1}/${flow.length})`, 10 + Math.round((i / flow.length) * 80));
         }
         const title = (epub.metadata && epub.metadata.title) || filename.replace(/\.[^.]+$/, "");

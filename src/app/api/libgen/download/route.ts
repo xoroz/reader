@@ -20,6 +20,23 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const { md5, title, author, extension } = body || {};
   if (!md5 || !/^[A-F0-9]{32}$/i.test(md5)) return NextResponse.json({ error: "Invalid md5" }, { status: 400 });
+  const md5Upper = md5.toUpperCase();
+
+  // Dedup: same libgen entry, same owner, not soft-deleted as a dup. Return
+  // the existing id so the client can navigate instead of starting a second
+  // download. 'failed' rows are NOT skipped — user may want to retry.
+  const existingLibgen = await q<{ id: string; title: string | null; status: string }>(
+    `SELECT id, title, status FROM books
+     WHERE owner_email = $1 AND libgen_md5 = $2 AND duplicate_of IS NULL AND status <> 'failed'
+     LIMIT 1`,
+    [email, md5Upper]
+  );
+  if (existingLibgen.length) {
+    return NextResponse.json(
+      { error: "duplicate", existingId: existingLibgen[0].id, title: existingLibgen[0].title, status: existingLibgen[0].status },
+      { status: 409 }
+    );
+  }
 
   const id = crypto.randomUUID();
   const dir = path.join(UPLOAD_DIR, id);
@@ -30,9 +47,9 @@ export async function POST(req: NextRequest) {
 
   // Insert row in 'downloading' state so client polling sees progress immediately.
   await q(
-    `INSERT INTO books (id, owner_email, title, author, source_filename, source_path, source_kind, status, status_detail, progress_pct)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'downloading','Resolving mirror',2)`,
-    [id, email, title || md5, author || null, placeholderName, placeholder, ext]
+    `INSERT INTO books (id, owner_email, title, author, source_filename, source_path, source_kind, status, status_detail, progress_pct, libgen_md5)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'downloading','Resolving mirror',2,$8)`,
+    [id, email, title || md5, author || null, placeholderName, placeholder, ext, md5Upper]
   );
 
   // Respond immediately; do download + extract in background.
@@ -42,7 +59,7 @@ export async function POST(req: NextRequest) {
       q(`UPDATE books SET status_detail = $2, progress_pct = $3 WHERE id = $1`, [id, stage, pct]).catch(() => {});
     try {
       console.log("[Reader] libgen resolving", { md5, id });
-      const urls = await resolveDownloadUrls(md5.toUpperCase());
+      const urls = await resolveDownloadUrls(md5Upper);
       if (!urls.length) throw new Error("Could not resolve download URL from any mirror");
       console.log("[Reader] libgen mirrors resolved", { md5, id, count: urls.length, hosts: urls.map((u) => new URL(u).hostname) });
       await setProgress("Downloading 0%", 10);

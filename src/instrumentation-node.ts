@@ -1,7 +1,6 @@
 // Node-only startup recovery: re-kick stuck book extracts + fail orphaned downloads.
 import fs from "node:fs/promises";
 import { q } from "@/lib/db";
-import { resumeExtractForBook } from "@/lib/resume";
 
 // Fire-and-forget; never block server startup.
 (async () => {
@@ -39,15 +38,13 @@ import { resumeExtractForBook } from "@/lib/resume";
         ]).catch(() => {});
         continue;
       }
-      console.log(`[Reader] startup recovery: resuming extract for ${b.id}`);
-      (async () => {
-        try {
-          await resumeExtractForBook(b.id);
-          console.log(`[Reader] startup recovery: ${b.id} -> ready`);
-        } catch (e: any) {
-          console.error(`[Reader] startup recovery: ${b.id} failed:`, e?.message || e);
-        }
-      })();
+      // Do NOT auto-resume: ingest OOMs re-trigger the same crash + AI spend loop.
+      // Mark as failed; user retries from UI.
+      await q(`UPDATE books SET status = 'failed', error = $2 WHERE id = $1`, [
+        b.id,
+        "Ingest interrupted (likely OOM). Please retry.",
+      ]).catch(() => {});
+      console.log(`[Reader] startup recovery: marked ${b.id} (extracting) as failed`);
     }
   } catch (e: any) {
     console.error("[Reader] startup recovery error:", e?.message || e);

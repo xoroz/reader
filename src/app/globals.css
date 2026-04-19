@@ -11,7 +11,7 @@
  * existing Reader.tsx continues to drive typography at runtime.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300..800;1,8..60,300..800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300..900;1,8..60,300..900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ---------- tokens (Paper default) ---------- */
 :root {
@@ -1183,33 +1183,38 @@ body[data-view="reader"] { overflow: hidden; }
   line-height: var(--reader-line-height);
   letter-spacing: -0.005em;
   color: var(--ink);
-  padding: 80px 96px;
-  overflow: hidden;
+  padding: 0;
   position: absolute;
-  inset: 60px 0 64px 0;
-  /* Force exactly one column per paginated "page" so horizontal scrolling
-     by clientWidth always lands on a clean boundary. Without this, the
-     browser auto-fits 2-3 columns when the viewport is wide, and the
-     scroll-by-clientWidth step leaves neighbouring columns half-visible. */
-  column-count: 1;
-  column-gap: 96px;
-  column-rule: none;
-  column-fill: auto;
-  max-width: var(--reader-measure);
-  margin-left: auto;
-  margin-right: auto;
+  top: 60px;
+  bottom: 64px;
+  left: 0;
+  right: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scroll-snap-type: y proximity;
   list-style: none;
   text-wrap: pretty;
   hanging-punctuation: first last;
-  scroll-behavior: smooth;
 }
+/* Direct children get a centered, measure-capped column so content
+   reads as a single well-proportioned block regardless of viewport
+   width. Matches the scroll-mode layout exactly — paginated differs
+   only in how Next/Prev advance (one clientHeight at a time). */
+.reader-column > * {
+  max-width: var(--reader-measure);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--reader-margins);
+  padding-right: var(--reader-margins);
+}
+.reader-column > :first-child { padding-top: 56px; }
+.reader-column > :last-child { padding-bottom: 80px; }
 
-@media (max-width: 1100px) {
-  .reader-canvas { grid-template-columns: 1fr; }
-  .reader-column { padding: 56px 40px; column-gap: 64px; }
-}
 @media (max-width: 720px) {
-  .reader-column { padding: 40px 24px; column-gap: 40px; }
+  .reader-column { scroll-padding-top: 8px; }
 }
 
 .reader-scroll {
@@ -1245,7 +1250,8 @@ body[data-view="reader"] { overflow: hidden; }
 
 .reader-column p,
 .reader-scroll p {
-  margin: 0 0 1em;
+  margin-top: 0;
+  margin-bottom: 1em;
   text-wrap: pretty;
   orphans: 3;
   widows: 3;
@@ -1256,7 +1262,8 @@ body[data-view="reader"] { overflow: hidden; }
   font-weight: 400;
   font-size: 1.55em;
   letter-spacing: -0.02em;
-  margin: 0 0 0.4em;
+  margin-top: 0;
+  margin-bottom: 0.4em;
   line-height: 1.08;
   break-after: avoid;
 }
@@ -2064,3 +2071,101 @@ body[data-tts="true"] .reader-scroll p.tts-para-active {
   letter-spacing: -0.01em;
 }
 .chapter-heading-inline:first-child { margin-top: 1rem; }
+
+/* Kindle send-to-Kindle toast — fixed bottom-center banner so it floats
+   above the library regardless of which book card triggered it. */
+.kindle-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 80;
+  min-width: 280px;
+  max-width: min(480px, calc(100vw - 32px));
+  padding: 14px 20px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.4;
+  font-family: var(--reader-sans);
+  font-weight: 500;
+  background: var(--ink);
+  color: var(--paper);
+  box-shadow:
+    0 18px 40px -10px rgba(20, 14, 8, 0.35),
+    0 6px 16px rgba(20, 14, 8, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  animation: ktoast-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  white-space: normal;
+}
+.kindle-toast.kt-ok {
+  background: #1F3B2A;
+  color: #DEF5E6;
+  box-shadow:
+    0 18px 40px -10px rgba(15, 40, 25, 0.45),
+    0 6px 16px rgba(15, 40, 25, 0.22),
+    0 0 0 1px rgba(180, 230, 200, 0.12);
+}
+.kindle-toast.kt-err {
+  background: #3A1A1A;
+  color: #FADCDC;
+  box-shadow:
+    0 18px 40px -10px rgba(60, 20, 20, 0.45),
+    0 6px 16px rgba(60, 20, 20, 0.22),
+    0 0 0 1px rgba(240, 180, 180, 0.12);
+}
+.kindle-toast.kt-sending {
+  background: var(--ink);
+  color: var(--paper);
+}
+.kt-spin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: ktoast-spin 0.8s linear infinite;
+  flex: 0 0 auto;
+  opacity: 0.9;
+}
+.kindle-toast .kt-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  flex: 0 0 auto;
+  margin-left: 4px;
+  opacity: 0.7;
+  transition: opacity 160ms ease;
+}
+.kindle-toast:hover .kt-dismiss { opacity: 1; }
+@keyframes ktoast-in {
+  from { opacity: 0; transform: translate(-50%, 14px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes ktoast-spin { to { transform: rotate(360deg); } }
+@media (max-width: 640px) {
+  .kindle-toast { bottom: 16px; min-width: auto; max-width: calc(100vw - 24px); padding: 12px 16px; font-size: 13px; }
+}
+
+.kt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.14);
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.kt-msg { flex: 1 1 auto; min-width: 0; }

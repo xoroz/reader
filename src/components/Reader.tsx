@@ -132,15 +132,11 @@ export default function Reader({
     const r = document.documentElement.style;
     r.setProperty("--reader-font-size", prefs.fontSize + "px");
     r.setProperty("--reader-line-height", String(prefs.lineHeight));
-    // Resolve `measure` in px based on the body font's "0" width.
-    const chPx = (() => {
-      try {
-        const ctx = document.createElement("canvas").getContext("2d");
-        if (ctx) { ctx.font = `${prefs.fontSize}px ${prefs.font}`; return ctx.measureText("0").width; }
-      } catch {}
-      return prefs.fontSize * 0.5;
-    })();
-    r.setProperty("--reader-measure", `${prefs.measure * chPx}px`);
+    // Use the CSS `ch` unit directly; it's the current font's "0" width,
+    // so no canvas measurement is needed. Canvas measureText returned
+    // garbage widths before the webfont loaded, which disabled max-width
+    // and broke column centering — that is why text hugged the left edge.
+    r.setProperty("--reader-measure", `${prefs.measure}ch`);
     r.setProperty("--reader-margins", prefs.margins + "rem");
     r.setProperty("--reader-serif", prefs.font);
     savePrefsDebounced(prefs);
@@ -150,7 +146,7 @@ export default function Reader({
   const computePages = useCallback(() => {
     const el = columnRef.current;
     if (!el || prefs.mode !== "paginated") return;
-    const pages = Math.max(1, Math.ceil(el.scrollWidth / el.clientWidth));
+    const pages = Math.max(1, Math.ceil(el.scrollHeight / Math.max(1, el.clientHeight)));
     setPageCount(pages);
     setPageIdx((p) => Math.min(p, pages - 1));
   }, [prefs.mode]);
@@ -190,8 +186,7 @@ export default function Reader({
     if (prefs.mode !== "paginated") return;
     const el = columnRef.current;
     if (!el) return;
-    const gap = parsePx(getComputedStyle(el).columnGap || "0");
-    el.scrollTo({ left: pageIdx * (el.clientWidth + gap), behavior: "auto" });
+    el.scrollTo({ top: pageIdx * el.clientHeight, behavior: "auto" });
   }, [pageIdx, chapterIdx, prefs]);
 
   useEffect(() => {
@@ -200,9 +195,13 @@ export default function Reader({
     if (!el) return;
     const onScroll = () => {
       const max = el.scrollHeight - el.clientHeight;
-      setScrollPct(max > 0 ? Math.round((el.scrollTop / max) * 100) : 0);
+      // When the chapter fits entirely in the viewport there is nothing to
+      // scroll; treat the reader as "at the end" so auto-advance can fire.
+      setScrollPct(max > 0 ? Math.round((el.scrollTop / max) * 100) : 100);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
+    // Fire once so fit-in-viewport chapters also register 100 on first paint.
+    onScroll();
     onScroll();
     return () => el.removeEventListener("scroll", onScroll);
   }, [prefs.mode, chapterIdx]);
@@ -233,10 +232,8 @@ export default function Reader({
       if (prefs.mode === "scroll") {
         el.scrollTo({ top: p.offsetTop - 16, behavior: "auto" });
       } else {
-        const gap = parsePx(getComputedStyle(el).columnGap || "0");
-        const pageW = el.clientWidth + gap;
-        const x = p.offsetLeft;
-        const page = Math.max(0, Math.floor(x / pageW));
+        const pageH = Math.max(1, el.clientHeight);
+        const page = Math.max(0, Math.floor(p.offsetTop / pageH));
         setPageIdx(page);
       }
       pendingRestoreRef.current = null;
@@ -259,11 +256,37 @@ export default function Reader({
       }
     } else {
       const parent = columnRef.current!;
-      const gap = parsePx(getComputedStyle(parent).columnGap || "0");
-      const page = Math.max(0, Math.floor(el.offsetLeft / (parent.clientWidth + gap)));
+      const pageH = Math.max(1, parent.clientHeight);
+      const page = Math.max(0, Math.floor(el.offsetTop / pageH));
       if (page !== pageIdx) setPageIdx(page);
     }
   }, [activePara, ttsOn, prefs.mode, pageIdx]);
+
+  // Continuous scroll auto-advance: at the end of a non-last chapter, flip
+  // to the next chapter and snap to the top. Gives the "continuous reading"
+  // flow the user wants without holding every chapter in memory (which OOMs
+  // Chrome on long books).
+  const scrollAdvanceArmedRef = useRef(false);
+  useEffect(() => {
+    if (prefs.mode !== "scroll") { scrollAdvanceArmedRef.current = false; return; }
+    const el = columnRef.current;
+    const fitsInViewport = !!(el && el.scrollHeight <= el.clientHeight + 4);
+    if (scrollPct < 96) { scrollAdvanceArmedRef.current = true; return; }
+    // Fit-in-viewport chapters never drop below 96% (nothing to scroll),
+    // so bypass the armed gate for them — otherwise titles/part markers
+    // would sit there forever.
+    if (!scrollAdvanceArmedRef.current && !fitsInViewport) return;
+    if (chapterIdx >= chapters.length - 1) return;
+    const delay = fitsInViewport ? 2200 : 0;
+    const handle = window.setTimeout(() => {
+      scrollAdvanceArmedRef.current = false;
+      setChapterIdx((c) => (c < chapters.length - 1 ? c + 1 : c));
+      setScrollPct(0);
+      const e2 = columnRef.current;
+      if (e2) e2.scrollTo({ top: 0, behavior: "auto" });
+    }, delay);
+    return () => window.clearTimeout(handle);
+  }, [scrollPct, prefs.mode, chapterIdx, chapters.length]);
 
   // Persist progress.
   useEffect(() => {
@@ -394,7 +417,6 @@ export default function Reader({
   // the viewport and sync chapterIdx to it. Cheap: one IntersectionObserver
   // keyed on the heading elements; triggers only on entry/exit.
   useEffect(() => {
-    if (prefs.mode !== "scroll") return;
     const el = columnRef.current;
     if (!el) return;
     // Delay a tick so the new DOM is mounted after a mode switch.
@@ -661,7 +683,7 @@ export default function Reader({
               });
             })()}
           </ul>
-        ) : prefs.mode === "paginated" ? paragraphs.map((p, i) => {
+        ) : paragraphs.map((p, i) => {
           const { tag, content, marker } = classifyParagraph(p);
           const cls = ttsOn && activePara === i ? "tts-para-active" : undefined;
           if (tag === "h2") return <h2 key={i} data-p-idx={i} className={cls}>{renderInlineMd(content)}</h2>;
@@ -681,48 +703,7 @@ export default function Reader({
               ) : null}
             </p>
           );
-        }) : (
-          /* Continuous scroll: every chapter in one flow. The heading for
-             each chapter carries data-chapter-anchor so the IntersectionObserver
-             above can sync chapterIdx as the reader scrolls. */
-          allChapters.map((ch) => {
-            const nodes: React.ReactNode[] = [];
-            const headingTitle = ch.title?.trim() || `Chapter ${ch.idx + 1}`;
-            nodes.push(
-              <h1
-                key={`h-${ch.idx}`}
-                className="chapter-heading-inline"
-                data-chapter-anchor={ch.idx}
-                id={`chapter-${ch.idx}`}
-              >
-                {headingTitle}
-              </h1>
-            );
-            ch.paragraphs.forEach((p, i) => {
-              const { tag, content, marker } = classifyParagraph(p);
-              const key = `${ch.idx}-${i}`;
-              if (tag === "h2") { nodes.push(<h2 key={key}>{renderInlineMd(content)}</h2>); return; }
-              if (tag === "h3") { nodes.push(<h3 key={key}>{renderInlineMd(content)}</h3>); return; }
-              if (tag === "h4") { nodes.push(<h4 key={key}>{renderInlineMd(content)}</h4>); return; }
-              if (tag === "li") {
-                nodes.push(
-                  <p key={key} className="reader-li" style={{ hyphens: prefs.hyphenate ? "auto" : "manual", WebkitHyphens: prefs.hyphenate ? "auto" : "manual" } as React.CSSProperties}>
-                    <span className="reader-li-marker">{marker}</span>
-                    <span>{renderInlineMd(content)}</span>
-                  </p>
-                );
-                return;
-              }
-              nodes.push(
-                <p key={key} style={{ hyphens: prefs.hyphenate ? "auto" : "manual", WebkitHyphens: prefs.hyphenate ? "auto" : "manual" } as React.CSSProperties}>
-                  {renderInlineMd(content)}
-                </p>
-              );
-            });
-            return nodes;
-          })
-        )}
-
+        })}
       </div>
 
       {/* Rails (desktop hover prev/next) */}
@@ -747,6 +728,10 @@ export default function Reader({
       <div className={`prog-ribbon${chromeHidden ? " chrome-hidden" : ""}`}>
         <div className="lft">
           <span>Ch {chapterIdx + 1} / {chapters.length}</span>
+          {(() => {
+            const m = (chapter?.title || "").match(/^\s*(\d+)[.)]/);
+            return m ? <span style={{ color: "var(--ink-3)" }}>· book ch {m[1]}</span> : null;
+          })()}
           {prefs.mode === "paginated" ? <span style={{ color: "var(--ink-3)" }}>· p {pageIdx + 1} / {pageCount}</span> : null}
         </div>
         <div className="track">

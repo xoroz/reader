@@ -7,6 +7,10 @@
 // levels, bullet + ordered lists) so the output matches what the user sees
 // on screen.
 import JSZip from "jszip";
+import { createWriteStream, promises as fsp } from "fs";
+import { tmpdir } from "os";
+import { join as pjoin } from "path";
+import { randomBytes } from "crypto";
 
 export type EpubChapter = {
   idx: number;
@@ -40,11 +44,14 @@ function safeId(s: string): string {
 // `code`, [label](url). Everything else is emitted as literal text.
 const INLINE_RE = /(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(`[^`\n]+`)|(\[[^\]]+\]\([^)]+\))/g;
 function inlineToXhtml(text: string): string {
-  INLINE_RE.lastIndex = 0;
+  // Fresh RegExp per invocation — the recursive link-label branch would
+  // otherwise clobber the shared /g regex's lastIndex and loop forever,
+  // consuming unbounded heap on books that contain Markdown links.
+  const re = new RegExp(INLINE_RE.source, 'g');
   const parts: string[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
-  while ((m = INLINE_RE.exec(text)) !== null) {
+  while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push(xmlEscape(text.slice(last, m.index)));
     const tok = m[0];
     if (tok.startsWith("**") && tok.endsWith("**")) parts.push(`<strong>${xmlEscape(tok.slice(2, -2))}</strong>`);
@@ -57,7 +64,7 @@ function inlineToXhtml(text: string): string {
       if (lm) parts.push(`<a href="${xmlEscape(lm[2])}">${inlineToXhtml(lm[1])}</a>`);
       else parts.push(xmlEscape(tok));
     }
-    last = INLINE_RE.lastIndex;
+    last = re.lastIndex;
   }
   if (last < text.length) parts.push(xmlEscape(text.slice(last)));
   return parts.join("");
@@ -208,6 +215,22 @@ export async function buildEpub(book: EpubBook): Promise<Buffer> {
   for (const ch of book.chapters) {
     zip.file(`OEBPS/ch${ch.idx}.xhtml`, chapterXhtml(book, ch), { compression: "DEFLATE" });
   }
-  const buf = await zip.generateAsync({ type: "nodebuffer" });
-  return buf;
+  // Stream to a temp file so V8's old-space never holds the full zip at once.
+  // For long books (28+ chapters of prose), generateAsync nodebuffer was
+  // blowing past 2 GB heap and crashing the Node process mid-send.
+  const tmp = pjoin(tmpdir(), `reader-epub-${book.id}-${randomBytes(4).toString("hex")}.epub`);
+  await new Promise<void>((resolve, reject) => {
+    const out = createWriteStream(tmp);
+    zip
+      .generateNodeStream({ type: "nodebuffer", compression: "DEFLATE", streamFiles: true })
+      .pipe(out)
+      .on("finish", () => resolve())
+      .on("error", reject);
+    out.on("error", reject);
+  });
+  try {
+    return await fsp.readFile(tmp);
+  } finally {
+    await fsp.unlink(tmp).catch(() => {});
+  }
 }

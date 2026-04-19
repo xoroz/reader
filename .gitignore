@@ -18,3 +18,5 @@ covers/
 *.bak*
 *.tsbuildinfo
 core.*
+*.pre-*-bak
+*.pre-failsafe-*

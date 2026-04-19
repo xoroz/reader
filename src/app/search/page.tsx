@@ -77,6 +77,10 @@ export default function DiscoverPage() {
         body: JSON.stringify({ md5: h.md5, title: h.title, author: h.author, extension: h.extension }),
       });
       const body = await res.json();
+      if (res.status === 409 && body?.existingId) {
+        router.push(`/book/${body.existingId}`);
+        return;
+      }
       if (!res.ok) throw new Error((typeof body.error === "string" && body.error) || "Download failed");
       const bookId = body.id;
       setStatus("Preparing");

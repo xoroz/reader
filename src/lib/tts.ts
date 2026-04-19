@@ -65,57 +65,58 @@ export function sliceFromParagraph(text: string, fromPara: number): { text: stri
   };
 }
 
-export async function synthesize(text: string, voice: TtsVoice): Promise<Buffer> {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error("OPENROUTER_API_KEY not set");
-  const body = {
-    model: process.env.OPENROUTER_MODEL_TTS || "openai/gpt-audio-mini",
-    modalities: ["text", "audio"],
-    audio: { voice, format: "pcm16" },
-    stream: true,
-    messages: [
-      { role: "system", content: "You are a text-to-speech engine. Read the user's text aloud verbatim in a warm, homey, low-pitched tone — like a seasoned audiobook narrator reading by a fireplace. Unhurried, calm, deliberate pace, slightly slower than conversational speech. Breathe naturally between sentences; pause a bit longer at paragraph breaks. Never add commentary, summaries, or extra words. Never read markdown or formatting characters aloud." },
-      { role: "user", content: text },
-    ],
-  };
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${key}`,
-      ...(process.env.OPENROUTER_REFERER ? { "HTTP-Referer": process.env.OPENROUTER_REFERER } : {}),
-      "X-Title": "Reader",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`TTS ${res.status}: ${(await res.text()).slice(0, 300)}`);
+// Map the OpenAI-flavoured voice ids the Reader UI exposes onto Gemini
+// prebuilt voice names. Keeps the existing voice picker working unchanged
+// while the backend uses Gemini TTS (the model the Android app already uses).
+const GEMINI_VOICE_MAP: Record<TtsVoice, string> = {
+  alloy: "Charon",
+  onyx: "Orus",
+  echo: "Puck",
+  fable: "Zephyr",
+  nova: "Aoede",
+  shimmer: "Kore",
+  coral: "Leda",
+  sage: "Algenib",
+};
 
-  // Parse SSE stream: each `data:` JSON event may carry choices[0].delta.audio.data (base64 chunk)
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  const chunks: Buffer[] = [];
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split(/\r?\n/);
-    buf = lines.pop() || "";
-    for (const line of lines) {
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === "[DONE]") continue;
-      try {
-        const j = JSON.parse(payload);
-        const delta = j.choices?.[0]?.delta || j.choices?.[0]?.message;
-        const b64 = delta?.audio?.data;
-        if (b64) chunks.push(Buffer.from(b64, "base64"));
-      } catch {}
-    }
-  }
-  if (!chunks.length) throw new Error("TTS stream returned no audio chunks");
-  const pcm = Buffer.concat(chunks);
-  return wrapWav(pcm, 24000, 1, 16);
+const TTS_INSTRUCTIONS =
+  "You are a text-to-speech engine. Read the user's text aloud verbatim in a warm, homey, low-pitched tone — like a seasoned audiobook narrator reading by a fireplace. Unhurried, calm, deliberate pace, slightly slower than conversational speech. Breathe naturally between sentences; pause a bit longer at paragraph breaks. Never add commentary, summaries, or extra words. Never read markdown or formatting characters aloud.";
+
+function parseSampleRate(mime: string): number {
+  const m = /rate=(\d+)/.exec(mime || "");
+  return m ? parseInt(m[1], 10) : 24000;
+}
+
+export async function synthesize(text: string, voice: TtsVoice): Promise<Buffer> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY not set");
+  const model = process.env.READER_TTS_MODEL || "gemini-2.5-flash-preview-tts";
+  const geminiVoice = GEMINI_VOICE_MAP[voice] || "Charon";
+  const payload = {
+    contents: [{ parts: [{ text: `${TTS_INSTRUCTIONS}\n\n${text}` }] }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: {
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: geminiVoice } },
+      },
+    },
+  };
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) throw new Error(`TTS ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const json: any = await res.json().catch(() => null);
+  const part = json?.candidates?.[0]?.content?.parts?.[0];
+  const b64: string | undefined = part?.inlineData?.data;
+  const mime: string = part?.inlineData?.mimeType ?? "audio/L16;codec=pcm;rate=24000";
+  if (!b64) throw new Error("TTS returned no audio");
+  const pcm = Buffer.from(b64, "base64");
+  return wrapWav(pcm, parseSampleRate(mime), 1, 16);
 }
 
 function wrapWav(pcm: Buffer, sampleRate: number, channels: number, bits: number): Buffer {
