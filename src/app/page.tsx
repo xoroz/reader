@@ -175,7 +175,18 @@ export default async function Library({ searchParams }: { searchParams?: Promise
 
               {cr ? (
                 <div className="cr-card">
-                  <div className="photo-ink" />
+                  {cr.cover_path ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      className="photo-cover"
+                      src={`/Reader/api/books/${cr.id}/cover`}
+                      alt=""
+                      loading="eager"
+                      decoding="async"
+                    />
+                  ) : (
+                    <div className="photo-ink" />
+                  )}
                   <div className="body">
                     <div className="mono">Continue reading</div>
                     <h3 className="ttl">{cr.title || "Untitled"}</h3>
