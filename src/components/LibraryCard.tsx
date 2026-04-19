@@ -61,12 +61,14 @@ export default function LibraryCard({
     let timer: ReturnType<typeof setTimeout> | null = null;
     const poll = async () => {
       try {
-        const res = await fetch(`${BP}/api/books/${id}/status`, { cache: "no-store" });
+        const res = await fetch(`${BP}/api/books/${id}`, { cache: "no-store" });
         if (res.ok) {
           const j = await res.json();
           if (!cancelled) {
-            setLivePct(typeof j.progressPct === "number" ? j.progressPct : null);
-            setLiveDetail(j?.progress?.message || j?.statusDetail || null);
+            const pct = typeof j.progress_pct === "number" ? j.progress_pct
+              : typeof j.progressPct === "number" ? j.progressPct : null;
+            setLivePct(pct);
+            setLiveDetail(j.status_detail || j.statusDetail || null);
             if (j.status === "ready" || j.status === "failed" || j.status === "duplicate") {
               router.refresh();
               return;

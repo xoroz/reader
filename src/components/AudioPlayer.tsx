@@ -30,8 +30,18 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
   const [elapsed, setElapsed] = useState(0);
   const [dur, setDur] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentUrlRef = useRef<string | null>(null);
   const nextBlobRef = useRef<{ url: string; part: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Replace the <audio> src with a fresh blob URL and revoke the previous one.
+  // Browsers keep the old blob alive until revoked even after src reassignment.
+  const setAudioSrc = useCallback((url: string) => {
+    const prev = currentUrlRef.current;
+    currentUrlRef.current = url;
+    if (audioRef.current) audioRef.current.src = url;
+    if (prev) URL.revokeObjectURL(prev);
+  }, []);
   const startParaRef = useRef(startParagraph);
   useEffect(() => { startParaRef.current = startParagraph; }, [startParagraph]);
 
@@ -78,7 +88,8 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
   function stopAll() {
     abortRef.current?.abort();
     abortRef.current = null;
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.removeAttribute("src"); audioRef.current.load(); }
+    if (currentUrlRef.current) { URL.revokeObjectURL(currentUrlRef.current); currentUrlRef.current = null; }
     if (nextBlobRef.current?.url) { URL.revokeObjectURL(nextBlobRef.current.url); nextBlobRef.current = null; }
     setPlaying(false); setLoading(false);
     onActiveParagraph?.(null, 0);
@@ -98,8 +109,8 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
       const got = useCustom
         ? await fetchFromPara(targetPara, abortRef.current.signal)
         : await fetchPart(pIdx, abortRef.current.signal);
-      if (!got || !audioRef.current) return;
-      audioRef.current.src = got.url;
+      if (!got || !audioRef.current) { if (got?.url) URL.revokeObjectURL(got.url); return; }
+      setAudioSrc(got.url);
       setCurrentMeta(got.meta);
       setPartIdx(pIdx);
       await audioRef.current.play();
@@ -131,7 +142,7 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
       if (nextBlobRef.current?.part === next && nextBlobRef.current.url && audioRef.current) {
         const url = nextBlobRef.current.url;
         nextBlobRef.current = null;
-        audioRef.current.src = url;
+        setAudioSrc(url);
         setCurrentMeta(parts[next]);
         setPartIdx(next);
         await audioRef.current.play();
@@ -143,8 +154,8 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
         try {
           abortRef.current = abortRef.current || new AbortController();
           const got = await fetchPart(next, abortRef.current.signal);
-          if (!got || !audioRef.current) return;
-          audioRef.current.src = got.url;
+          if (!got || !audioRef.current) { if (got?.url) URL.revokeObjectURL(got.url); return; }
+          setAudioSrc(got.url);
           setCurrentMeta(got.meta);
           setPartIdx(next);
           await audioRef.current.play();

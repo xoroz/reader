@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { q } from "@/lib/db";
 import { extract } from "@/lib/extract";
 import { rebuildWithFrontMatter } from "@/lib/ai";
+import { rateLimit, rateLimitResponse } from "@/lib/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,6 +83,10 @@ export async function POST(req: NextRequest) {
   const token = req.cookies.get(COOKIE_NAME)?.value || "";
   const email = await verifySession(token);
   if (!email) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  // Cap uploads at 12 / hour / user. A 60 MB file would otherwise let a
+  // single account fill the disk in minutes; this is the cheapest defence.
+  const rl = rateLimit(`${email}:upload`, 12, 60 * 60_000);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfterMs);
   const form = await req.formData();
   const file = form.get("file") as File | null;
   if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });

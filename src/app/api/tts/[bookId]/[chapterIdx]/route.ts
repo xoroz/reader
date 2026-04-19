@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { q, pool } from "@/lib/db";
 import { currentEmail } from "@/lib/user";
+import { rateLimit, rateLimitResponse } from "@/lib/security";
 import { chunkForTts, partsMeta, sliceFromParagraph, synthesize, TTS_VOICES, TtsVoice } from "@/lib/tts";
+
+// Dedupe concurrent TTS synthesis for the same (book, chapter, part, voice).
+// Two clients tapping "play" at the same time would otherwise both bill
+// OpenRouter for the same audio and race to insert into audio_cache.
+type InFlight = { promise: Promise<Buffer> };
+const g = globalThis as unknown as { __readerTtsInFlight?: Map<string, InFlight> };
+const inFlight: Map<string, InFlight> = g.__readerTtsInFlight ?? new Map();
+g.__readerTtsInFlight = inFlight;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +38,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
   if (!/^\d{1,7}$/.test(chapterIdx)) return NextResponse.json({ error: "Invalid chapter" }, { status: 400 });
   const ch = Number(chapterIdx);
   if (!Number.isInteger(ch) || ch < 0 || ch > MAX_CHAPTER_IDX) return NextResponse.json({ error: "Invalid chapter" }, { status: 400 });
+
+  // Cost guard: 60 TTS calls / minute / user is well above sequential-part
+  // playback (parts are minutes long) but well below what a scripted client
+  // could do to rack up Gemini/OpenAI spend.
+  const rl = rateLimit(`${email}:tts`, 60, 60_000);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfterMs);
 
   const partParam = req.nextUrl.searchParams.get("part");
   const partParsed = parseNonNegativeInt(partParam, MAX_PART_IDX);
@@ -84,6 +99,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
     });
   }
 
+  // Always resolve the chapter through the owner filter first. Returning
+  // cached audio without verifying the book belongs to the caller would let
+  // anyone who guessed a valid book_id stream another user's cached audio.
+  const chap = await q<{ text: string }>(
+    `SELECT c.text FROM chapters c JOIN books b ON b.id = c.book_id
+     WHERE b.id = $1 AND b.owner_email = $2 AND c.idx = $3`,
+    [bookId, email, ch]
+  );
+  if (!chap.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
   const cached = await pool.query<{ data: Buffer }>(
     `SELECT data FROM audio_cache WHERE book_id = $1 AND chapter_idx = $2 AND part_idx = $3 AND voice = $4`,
     [bookId, ch, partIdx, voice]
@@ -95,26 +120,37 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
     });
   }
 
-  const chap = await q<{ text: string }>(
-    `SELECT c.text FROM chapters c JOIN books b ON b.id = c.book_id
-     WHERE b.id = $1 AND b.owner_email = $2 AND c.idx = $3`,
-    [bookId, email, ch]
-  );
-  if (!chap.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const parts = chunkForTts(chap[0].text);
   if (partIdx >= parts.length) return NextResponse.json({ error: "Part out of range" }, { status: 404 });
 
-  let mp3: Buffer;
-  try { mp3 = await synthesize(parts[partIdx].text, voice); }
-  catch (e: any) { return NextResponse.json({ error: e.message || "TTS failed" }, { status: 502 }); }
+  // Dedupe concurrent synthesis for the same cache key. The second caller
+  // awaits the in-flight Promise and both get the same bytes.
+  const inFlightKey = `${bookId}\0${ch}\0${partIdx}\0${voice}`;
+  let wav: Buffer;
+  try {
+    let hit = inFlight.get(inFlightKey);
+    if (!hit) {
+      const text = parts[partIdx].text;
+      const promise = (async () => {
+        try {
+          const audio = await synthesize(text, voice);
+          await pool.query(
+            `INSERT INTO audio_cache (book_id, chapter_idx, part_idx, voice, data) VALUES ($1,$2,$3,$4,$5)
+             ON CONFLICT (book_id, chapter_idx, part_idx, voice) DO UPDATE SET data = EXCLUDED.data, created_at = now()`,
+            [bookId, ch, partIdx, voice, audio]
+          );
+          return audio;
+        } finally {
+          inFlight.delete(inFlightKey);
+        }
+      })();
+      hit = { promise };
+      inFlight.set(inFlightKey, hit);
+    }
+    wav = await hit.promise;
+  } catch (e: any) { return NextResponse.json({ error: e.message || "TTS failed" }, { status: 502 }); }
 
-  await pool.query(
-    `INSERT INTO audio_cache (book_id, chapter_idx, part_idx, voice, data) VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (book_id, chapter_idx, part_idx, voice) DO UPDATE SET data = EXCLUDED.data, created_at = now()`,
-    [bookId, ch, partIdx, voice, mp3]
-  );
-
-  return new Response(mp3 as any, {
+  return new Response(wav as any, {
     status: 200,
     headers: { "Content-Type": "audio/wav", "Cache-Control": "private, max-age=604800", "X-Cache": "MISS" },
   });
