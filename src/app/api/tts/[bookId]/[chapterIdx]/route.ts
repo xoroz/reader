@@ -9,6 +9,43 @@ import { chunkForTts, partsMeta, sliceFromParagraph, synthesize, TTS_VOICES, Tts
 // OpenRouter for the same audio and race to insert into audio_cache.
 type InFlight = { promise: Promise<Buffer> };
 const g = globalThis as unknown as { __readerTtsInFlight?: Map<string, InFlight> };
+
+// Build an audio Response that supports Range requests + proper headers.
+// Android Chrome audio element does HEAD / Range probes; without these the
+// browser treats the resource as un-seekable and often aborts playback.
+function audioResponse(req: NextRequest, body: Buffer, mime: string, cacheHit: boolean): Response {
+  const total = body.length;
+  const rangeHdr = req.headers.get("range");
+  const baseHeaders: Record<string, string> = {
+    "Content-Type": mime,
+    "Cache-Control": "private, max-age=604800",
+    "Accept-Ranges": "bytes",
+    "X-Cache": cacheHit ? "HIT" : "MISS",
+  };
+  if (rangeHdr) {
+    const m = /^bytes=(\d+)-(\d*)$/.exec(rangeHdr);
+    if (m) {
+      const start = parseInt(m[1], 10);
+      const end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
+      if (!isNaN(start) && start < total && end >= start) {
+        const slice = body.subarray(start, end + 1);
+        return new Response(slice as any, {
+          status: 206,
+          headers: {
+            ...baseHeaders,
+            "Content-Range": `bytes ${start}-${end}/${total}`,
+            "Content-Length": String(slice.length),
+          },
+        });
+      }
+    }
+  }
+  return new Response(body as any, {
+    status: 200,
+    headers: { ...baseHeaders, "Content-Length": String(total) },
+  });
+}
+
 const inFlight: Map<string, InFlight> = g.__readerTtsInFlight ?? new Map();
 g.__readerTtsInFlight = inFlight;
 
@@ -114,10 +151,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
     [bookId, ch, partIdx, voice]
   );
   if (cached.rows.length) {
-    return new Response(cached.rows[0].data as any, {
-      status: 200,
-      headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=604800", "X-Cache": "HIT" },
-    });
+    return audioResponse(req, cached.rows[0].data as Buffer, "audio/mpeg", true);
   }
 
   const parts = chunkForTts(chap[0].text);
@@ -150,8 +184,5 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
     wav = await hit.promise;
   } catch (e: any) { return NextResponse.json({ error: e.message || "TTS failed" }, { status: 502 }); }
 
-  return new Response(wav as any, {
-    status: 200,
-    headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=604800", "X-Cache": "MISS" },
-  });
+  return audioResponse(req, wav, "audio/mpeg", false);
 }
