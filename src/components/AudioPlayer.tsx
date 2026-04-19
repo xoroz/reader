@@ -266,9 +266,6 @@ export default function AudioPlayer({ bookId, chapterIdx, chapterCount, startPar
             <div className="tts-progress-fill" style={{ width: `${globalPct}%` }} />
           </div>
         </div>
-        <select className="tts-select" value={voice} onChange={(e) => setVoice(e.target.value as Voice)} aria-label="Voice" disabled={playing || loading}>
-          {VOICES.map((v) => <option key={v} value={v}>{v[0].toUpperCase() + v.slice(1)}</option>)}
-        </select>
       </div>
     </div>
   );

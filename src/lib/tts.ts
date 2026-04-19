@@ -84,10 +84,22 @@ const GEMINI_VOICE_MAP: Record<TtsVoice, string> = {
 
 // Synthesize `text` with `voice` via OpenAI /v1/audio/speech. Returns MP3 bytes
 // ready to send to the browser with Content-Type audio/mpeg. No ffmpeg needed.
-export async function synthesize(text: string, voice: TtsVoice): Promise<Buffer> {
+// Fixed voice — picker removed. `onyx` = the deepest resonant male voice;
+// combined with an instructions prompt on the gpt-4o-mini-tts model we get
+// a slow, low, romantic, passionate delivery.
+const FIXED_VOICE = "onyx";
+const ROMANTIC_INSTRUCTIONS =
+  "Read in a warm, deep, intimate tone — low-pitched, unhurried, passionate. " +
+  "Speak as if confiding to one listener close by, slower than conversational speech. " +
+  "Linger on emphasis words. Take noticeable pauses at punctuation, longer at paragraph breaks. " +
+  "Never race. No commentary — read the text verbatim.";
+
+export async function synthesize(text: string, _voice: TtsVoice): Promise<Buffer> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY not set");
-  const model = process.env.READER_TTS_MODEL || "tts-1";
+  // gpt-4o-mini-tts supports the `instructions` param for tone steering.
+  // tts-1/tts-1-hd don't — they'd ignore it and sound generic.
+  const model = process.env.READER_TTS_MODEL || "gpt-4o-mini-tts";
   const ctl = new AbortController();
   const to = setTimeout(() => ctl.abort(), 60_000);
   try {
@@ -99,8 +111,9 @@ export async function synthesize(text: string, voice: TtsVoice): Promise<Buffer>
       },
       body: JSON.stringify({
         model,
-        voice,
+        voice: FIXED_VOICE,
         input: text,
+        instructions: ROMANTIC_INSTRUCTIONS,
         response_format: "mp3",
       }),
       signal: ctl.signal,
