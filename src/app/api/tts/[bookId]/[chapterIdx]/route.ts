@@ -89,7 +89,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
     return new Response(wav as any, {
       status: 200,
       headers: {
-        "Content-Type": "audio/wav",
+        "Content-Type": "audio/mpeg",
         "Cache-Control": "private, no-store",
         "X-Cache": "SKIP",
         "X-Start-Para": String(slice.startPara),
@@ -116,7 +116,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
   if (cached.rows.length) {
     return new Response(cached.rows[0].data as any, {
       status: 200,
-      headers: { "Content-Type": "audio/wav", "Cache-Control": "private, max-age=604800", "X-Cache": "HIT" },
+      headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=604800", "X-Cache": "HIT" },
     });
   }
 
@@ -152,6 +152,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
 
   return new Response(wav as any, {
     status: 200,
-    headers: { "Content-Type": "audio/wav", "Cache-Control": "private, max-age=604800", "X-Cache": "MISS" },
+    headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=604800", "X-Cache": "MISS" },
   });
 }

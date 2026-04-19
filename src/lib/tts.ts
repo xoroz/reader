@@ -116,7 +116,39 @@ export async function synthesize(text: string, voice: TtsVoice): Promise<Buffer>
   const mime: string = part?.inlineData?.mimeType ?? "audio/L16;codec=pcm;rate=24000";
   if (!b64) throw new Error("TTS returned no audio");
   const pcm = Buffer.from(b64, "base64");
-  return wrapWav(pcm, parseSampleRate(mime), 1, 16);
+  return await pcmToMp3(pcm, parseSampleRate(mime));
+}
+
+// Pipe raw PCM (signed 16-bit little-endian, mono) through ffmpeg -> MP3.
+// Falls back to WAV if ffmpeg isn't on PATH.
+async function pcmToMp3(pcm: Buffer, sampleRate: number): Promise<Buffer> {
+  const { spawn } = await import("node:child_process");
+  return await new Promise<Buffer>((resolve, reject) => {
+    const ff = spawn(
+      "ffmpeg",
+      [
+        "-f", "s16le",
+        "-ar", String(sampleRate),
+        "-ac", "1",
+        "-i", "pipe:0",
+        "-codec:a", "libmp3lame",
+        "-b:a", "64k",
+        "-f", "mp3",
+        "pipe:1",
+      ],
+      { stdio: ["pipe", "pipe", "pipe"] }
+    );
+    const chunks: Buffer[] = [];
+    const errChunks: Buffer[] = [];
+    ff.stdout.on("data", (d) => chunks.push(d));
+    ff.stderr.on("data", (d) => errChunks.push(d));
+    ff.on("error", (err) => reject(err));
+    ff.on("close", (code) => {
+      if (code === 0) resolve(Buffer.concat(chunks));
+      else reject(new Error(`ffmpeg exit ${code}: ${Buffer.concat(errChunks).toString("utf8").slice(0, 200)}`));
+    });
+    ff.stdin.end(pcm);
+  });
 }
 
 function wrapWav(pcm: Buffer, sampleRate: number, channels: number, bits: number): Buffer {
