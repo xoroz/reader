@@ -79,76 +79,41 @@ const GEMINI_VOICE_MAP: Record<TtsVoice, string> = {
   sage: "Algenib",
 };
 
-const TTS_INSTRUCTIONS =
-  "You are a text-to-speech engine. Read the user's text aloud verbatim in a warm, homey, low-pitched tone — like a seasoned audiobook narrator reading by a fireplace. Unhurried, calm, deliberate pace, slightly slower than conversational speech. Breathe naturally between sentences; pause a bit longer at paragraph breaks. Never add commentary, summaries, or extra words. Never read markdown or formatting characters aloud.";
+// Voice name maps OpenAI 1:1 — no mapping table needed.
+// Reader exposes the same set of voice names the API accepts.
 
-function parseSampleRate(mime: string): number {
-  const m = /rate=(\d+)/.exec(mime || "");
-  return m ? parseInt(m[1], 10) : 24000;
-}
-
+// Synthesize `text` with `voice` via OpenAI /v1/audio/speech. Returns MP3 bytes
+// ready to send to the browser with Content-Type audio/mpeg. No ffmpeg needed.
 export async function synthesize(text: string, voice: TtsVoice): Promise<Buffer> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY not set");
-  const model = process.env.READER_TTS_MODEL || "gemini-2.5-flash-preview-tts";
-  const geminiVoice = GEMINI_VOICE_MAP[voice] || "Charon";
-  const payload = {
-    contents: [{ parts: [{ text: `${TTS_INSTRUCTIONS}\n\n${text}` }] }],
-    generationConfig: {
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-        voiceConfig: { prebuiltVoiceConfig: { voiceName: geminiVoice } },
-      },
-    },
-  };
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-    {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error("OPENAI_API_KEY not set");
+  const model = process.env.READER_TTS_MODEL || "tts-1";
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 60_000);
+  try {
+    const res = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
-  );
-  if (!res.ok) throw new Error(`TTS ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const json: any = await res.json().catch(() => null);
-  const part = json?.candidates?.[0]?.content?.parts?.[0];
-  const b64: string | undefined = part?.inlineData?.data;
-  const mime: string = part?.inlineData?.mimeType ?? "audio/L16;codec=pcm;rate=24000";
-  if (!b64) throw new Error("TTS returned no audio");
-  const pcm = Buffer.from(b64, "base64");
-  return await pcmToMp3(pcm, parseSampleRate(mime));
-}
-
-// Pipe raw PCM (signed 16-bit little-endian, mono) through ffmpeg -> MP3.
-// Falls back to WAV if ffmpeg isn't on PATH.
-async function pcmToMp3(pcm: Buffer, sampleRate: number): Promise<Buffer> {
-  const { spawn } = await import("node:child_process");
-  return await new Promise<Buffer>((resolve, reject) => {
-    const ff = spawn(
-      "ffmpeg",
-      [
-        "-f", "s16le",
-        "-ar", String(sampleRate),
-        "-ac", "1",
-        "-i", "pipe:0",
-        "-codec:a", "libmp3lame",
-        "-b:a", "64k",
-        "-f", "mp3",
-        "pipe:1",
-      ],
-      { stdio: ["pipe", "pipe", "pipe"] }
-    );
-    const chunks: Buffer[] = [];
-    const errChunks: Buffer[] = [];
-    ff.stdout.on("data", (d) => chunks.push(d));
-    ff.stderr.on("data", (d) => errChunks.push(d));
-    ff.on("error", (err) => reject(err));
-    ff.on("close", (code) => {
-      if (code === 0) resolve(Buffer.concat(chunks));
-      else reject(new Error(`ffmpeg exit ${code}: ${Buffer.concat(errChunks).toString("utf8").slice(0, 200)}`));
+      headers: {
+        "Authorization": `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        voice,
+        input: text,
+        response_format: "mp3",
+      }),
+      signal: ctl.signal,
     });
-    ff.stdin.end(pcm);
-  });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`TTS ${res.status}: ${detail.slice(0, 300)}`);
+    }
+    const ab = await res.arrayBuffer();
+    return Buffer.from(ab);
+  } finally {
+    clearTimeout(to);
+  }
 }
 
 function wrapWav(pcm: Buffer, sampleRate: number, channels: number, bits: number): Buffer {
