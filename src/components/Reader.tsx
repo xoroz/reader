@@ -11,10 +11,9 @@ function savePrefsDebounced(p: Prefs) {
   if (typeof window === "undefined") return;
   if (_prefsSaveTimer) clearTimeout(_prefsSaveTimer);
   _prefsSaveTimer = setTimeout(() => {
-    fetch(`${BP}/api/prefs`, {
+    apiFetch(`${BP}/api/prefs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify(p),
     }).catch(() => {});
   }, 300);
