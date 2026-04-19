@@ -55,7 +55,17 @@ export function detectKind(filename: string, mime?: string): string {
   return "txt";
 }
 
+// Hard cap: reject files large enough to reliably OOM the extract pipeline.
+// 80MB was chosen after a 118MB EPUB pushed the v8 heap past 3GB during
+// DOM/manifest construction. Libgen already refuses >60MB per mirror — this
+// is a second line of defense for uploads and OPDS imports.
+const EXTRACT_SIZE_CAP_BYTES = Math.max(1, parseInt(process.env.READER_EXTRACT_MAX_MB || "80", 10)) * 1024 * 1024;
+
 export async function extract(filePath: string, filename: string, mime: string | undefined, onProgress?: ProgressFn): Promise<Extracted> {
+  const stat = await fs.stat(filePath);
+  if (stat.size > EXTRACT_SIZE_CAP_BYTES) {
+    throw new Error(`File too large to extract: ${stat.size} bytes exceeds ${EXTRACT_SIZE_CAP_BYTES} bytes cap (raise READER_EXTRACT_MAX_MB if memory allows).`);
+  }
   const kind = detectKind(filename, mime);
   const report = onProgress || (() => {});
   report(`Parsing ${kind.toUpperCase()}`, 5);
