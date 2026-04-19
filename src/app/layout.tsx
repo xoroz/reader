@@ -7,6 +7,17 @@ export const metadata: Metadata = {
   description: "Private reading, beautifully typeset",
   manifest: "/Reader/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Reader" },
+  icons: {
+    icon: [
+      { url: "/Reader/icon.svg", type: "image/svg+xml" },
+      { url: "/Reader/icon-192.png", type: "image/png", sizes: "192x192" },
+      { url: "/Reader/icon-512.png", type: "image/png", sizes: "512x512" },
+    ],
+    apple: [
+      { url: "/Reader/icon-192.png", sizes: "192x192" },
+      { url: "/Reader/icon-512.png", sizes: "512x512" },
+    ],
+  },
 };
 
 export const viewport: Viewport = {
