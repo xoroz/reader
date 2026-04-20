@@ -20,3 +20,12 @@ covers/
 core.*
 *.pre-*-bak
 *.pre-failsafe-*
+
+# backup/audit snapshots
+*.bak
+*.bak-*
+*.bak*
+*.orig
+*.old
+*.pre-*
+*-pre-*
