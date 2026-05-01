@@ -28,37 +28,100 @@ Private reading app. Upload a book (PDF / EPUB / DOCX / TXT / MD), get AI-cleane
 - OpenRouter (Anthropic + OpenAI audio)
 - `poppler-utils` (PDF cover rendering)
 
-## Deploy
+## Deploy — sysmini (Ubuntu, no Caddy, Apache + pm2)
 
-Assumes Debian/Ubuntu with Node 22+, Postgres, Caddy, PM2 and `poppler-utils` installed.
+This documents the actual production setup on the sysmini server.
+
+### Prerequisites
+
+- Node 22+, PostgreSQL 18+, PM2, `poppler-utils`
+- `~/projects/shared-auth/` — custom shared-auth module (see below)
+- `~/projects/shared-ai/` — custom shared-ai module (see below)
+
+### 1) PostgreSQL
 
 ```bash
-# 1) Postgres
-sudo -u postgres psql -c "CREATE ROLE reader LOGIN PASSWORD '<pg-pass>';"
-sudo -u postgres psql -c "CREATE DATABASE reader OWNER reader;"
-sudo -u postgres psql -d reader -f sql/001_init.sql
+PGPASSWORD='<postgres-superuser-pass>' psql -U postgres -h 127.0.0.1 \
+  -c "CREATE ROLE reader LOGIN PASSWORD '<pg-pass>';"
+PGPASSWORD='<postgres-superuser-pass>' psql -U postgres -h 127.0.0.1 \
+  -c "CREATE DATABASE reader OWNER reader;"
 
-# 2) App
-git clone https://github.com/zlnsk/Reader.git /opt/apps/Reader
-cd /opt/apps/Reader
+PGPASSWORD='<pg-pass>' psql -U reader -h 127.0.0.1 -d reader -f sql/001_init.sql
+PGPASSWORD='<pg-pass>' psql -U reader -h 127.0.0.1 -d reader -f sql/002_opds.sql
+PGPASSWORD='<pg-pass>' psql -U reader -h 127.0.0.1 -d reader -f sql/003_columns.sql
+PGPASSWORD='<pg-pass>' psql -U reader -h 127.0.0.1 -d reader -f sql/003_libgen_md5.sql
+```
+
+### 2) shared-auth module
+
+The original `shared-auth` package expects JMAP for email. This setup uses SMTP (OVH)
+and lives at `~/projects/shared-auth/` instead of `/opt/apps/shared-auth/`.
+
+Files: `index.js`, `edge.js`, `email.js`, `package.json`
+- `index.js`: `getConfig`, `loginPageHTML`, `generateOTP`, `verifyOTP`, `sendOTPEmail`, `checkRateLimit`, `createSession`
+- `edge.js`: `verifySessionEdge` (Edge-runtime Web Crypto, no Node.js imports)
+- `email.js`: `sendEmailWithAttachment` via nodemailer
+
+```bash
+mkdir -p ~/projects/shared-auth
+cd ~/projects/shared-auth
+npm install  # installs nodemailer
+```
+
+Env vars consumed (falls back SMTP_* if OTP_SMTP_* not set):
+- `OTP_SESSION_SECRET` — 32-byte base64 (`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`)
+- `OTP_SESSION_HOURS` — session lifetime (168 = 7 days)
+- `OTP_ALLOWED_EMAILS` — comma-separated allow-list
+- `OTP_FROM_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+
+### 3) shared-ai module
+
+```bash
+mkdir -p ~/projects/shared-ai
+# write index.js with chatCompletion() that calls OpenRouter
+```
+
+`chatCompletion({apiKey, model, messages, temperature, maxTokens, responseFormat, appName, referer})` → `{content: string}`
+
+### 4) App install
+
+```bash
+cp -r ~/repos/reader ~/projects/reader
+mkdir -p ~/projects/reader/uploads
+cd ~/projects/reader
 cp ecosystem.config.example.js ecosystem.config.js
-# Edit ecosystem.config.js and replace every REPLACE_ME value:
-#   - PROXY_SECRET (32-byte base64, shared with Caddy)
-#   - OTP_SESSION_SECRET (32-byte base64)
-#   - OTP_JMAP_* (JMAP mail credentials for sending OTP codes)
-#   - PGPASSWORD
-#   - OPENROUTER_API_KEY
-#   - OTP_ALLOWED_EMAILS (comma-separated)
+# Fill in all values (see ecosystem.config.js comments)
 
 npm install
-# Link the OTP auth module alongside (assumes /opt/apps/shared-auth exists)
-ln -sfn /opt/apps/shared-auth node_modules/shared-auth
+
+# Fix the shared-* symlinks (postinstall points to /opt/apps which doesn't exist)
+rm ~/projects/reader/node_modules/shared-auth
+ln -sfn ~/projects/shared-auth ~/projects/reader/node_modules/shared-auth
+rm ~/projects/reader/node_modules/shared-ai
+ln -sfn ~/projects/shared-ai ~/projects/reader/node_modules/shared-ai
+
 npm run build
 pm2 start ecosystem.config.js
 pm2 save
 ```
 
-Caddy snippet (for this app behind a reverse proxy at path `/Reader`):
+### 5) Apache proxy (adds to `/etc/apache2/sites-enabled/001-cbot.conf`)
+
+```apache
+<Location /Reader>
+    Require all granted
+</Location>
+
+ProxyPass /Reader        http://127.0.0.1:3017/Reader
+ProxyPassReverse /Reader http://127.0.0.1:3017/Reader
+```
+
+Then: `sudo systemctl restart apache2`
+
+> Note: On sysmini, external traffic (`dev.texngo.it`) hits Apache port 80 (`000-default.conf`).
+> The proxy rules above belong in whichever Apache VHost handles your public hostname.
+
+### Caddy snippet (alternative, original design)
 
 ```caddyfile
 @reader path_regexp ^(?i)/Reader(/.*)?$
@@ -67,7 +130,6 @@ handle @reader {
     header_up Host {host}
     header_up X-Forwarded-Host {host}
     header_up X-Forwarded-Proto "https"
-    header_up X-Proxy-Secret "<matches PROXY_SECRET>"
   }
 }
 ```
