@@ -96,44 +96,73 @@ const ROMANTIC_INSTRUCTIONS =
 
 export async function synthesize(text: string, _voice: TtsVoice): Promise<Buffer> {
   const openaiKey = process.env.OPENAI_API_KEY;
-  const orKey = process.env.OPENROUTER_API_KEY;
-  const key = openaiKey || orKey;
-  if (!key) throw new Error("No TTS API key: set OPENAI_API_KEY or OPENROUTER_API_KEY");
+  const orKey = process.env.OPENROUTER_API_KEY_TTS || process.env.OPENROUTER_API_KEY;
 
-  const useOpenRouter = !openaiKey && !!orKey;
-  const baseUrl = useOpenRouter
-    ? "https://openrouter.ai/api/v1/audio/speech"
-    : "https://api.openai.com/v1/audio/speech";
-  // gpt-4o-mini-tts supports the `instructions` param for tone steering.
-  // tts-1/tts-1-hd don't — they'd ignore it and sound generic.
-  const model = process.env.READER_TTS_MODEL || (useOpenRouter ? "openai/gpt-4o-mini-tts" : "gpt-4o-mini-tts");
-  const ctl = new AbortController();
-  const to = setTimeout(() => ctl.abort(), 60_000);
-  try {
-    const res = await fetch(baseUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        voice: FIXED_VOICE,
-        input: text,
-        instructions: ROMANTIC_INSTRUCTIONS,
-        response_format: "mp3",
-      }),
-      signal: ctl.signal,
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new Error(`TTS ${res.status}: ${detail.slice(0, 300)}`);
+  if (openaiKey) {
+    // Direct OpenAI — /audio/speech, returns MP3
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 60_000);
+    try {
+      const res = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: FIXED_VOICE, input: text, instructions: ROMANTIC_INSTRUCTIONS, response_format: "mp3" }),
+        signal: ctl.signal,
+      });
+      if (!res.ok) { const d = await res.text().catch(() => ""); throw new Error(`TTS ${res.status}: ${d.slice(0, 300)}`); }
+      return Buffer.from(await res.arrayBuffer());
+    } finally {
+      clearTimeout(to);
     }
-    const ab = await res.arrayBuffer();
-    return Buffer.from(ab);
-  } finally {
-    clearTimeout(to);
   }
+
+  if (orKey) {
+    // OpenRouter — chat completions with audio modality, streams PCM16 → wrapped as WAV
+    const model = process.env.READER_TTS_MODEL || "openai/gpt-audio-mini";
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 60_000);
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${orKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          stream: true,
+          modalities: ["text", "audio"],
+          audio: { voice: FIXED_VOICE, format: "pcm16" },
+          messages: [{ role: "user", content: `Read aloud verbatim, no commentary:\n${text}` }],
+        }),
+        signal: ctl.signal,
+      });
+      if (!res.ok) { const d = await res.text().catch(() => ""); throw new Error(`OR-TTS ${res.status}: ${d.slice(0, 300)}`); }
+      // Collect base64 PCM16 chunks from SSE stream
+      const chunks: Buffer[] = [];
+      const reader = res.body!.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop()!;
+        for (const line of lines) {
+          if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+          try {
+            const chunk = JSON.parse(line.slice(6));
+            const audio = chunk?.choices?.[0]?.delta?.audio;
+            if (audio?.data) chunks.push(Buffer.from(audio.data, "base64"));
+          } catch {}
+        }
+      }
+      const pcm = Buffer.concat(chunks);
+      return wrapWav(pcm, 24000, 1, 16);
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  throw new Error("No TTS key. Set OPENAI_API_KEY or OPENROUTER_API_KEY_TTS.");
 }
 
 function wrapWav(pcm: Buffer, sampleRate: number, channels: number, bits: number): Buffer {
