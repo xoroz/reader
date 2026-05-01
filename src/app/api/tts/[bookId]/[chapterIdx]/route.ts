@@ -7,7 +7,8 @@ import { chunkForTts, partsMeta, sliceFromParagraph, synthesize, TTS_VOICES, Tts
 // Dedupe concurrent TTS synthesis for the same (book, chapter, part, voice).
 // Two clients tapping "play" at the same time would otherwise both bill
 // OpenRouter for the same audio and race to insert into audio_cache.
-type InFlight = { promise: Promise<Buffer> };
+type TtsResult = { data: Buffer; mime: string };
+type InFlight = { promise: Promise<TtsResult> };
 const g = globalThis as unknown as { __readerTtsInFlight?: Map<string, InFlight> };
 
 // Build an audio Response that supports Range requests + proper headers.
@@ -120,13 +121,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
     if (!chap.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
     const slice = sliceFromParagraph(chap[0].text, fromPara);
     if (!slice) return NextResponse.json({ error: "Paragraph out of range" }, { status: 404 });
-    let wav: Buffer;
-    try { wav = await synthesize(slice.text, voice); }
+    let tts: { data: Buffer; mime: string };
+    try { tts = await synthesize(slice.text, voice); }
     catch (e: any) { return NextResponse.json({ error: e.message || "TTS failed" }, { status: 502 }); }
-    return new Response(wav as any, {
+    return new Response(tts.data as any, {
       status: 200,
       headers: {
-        "Content-Type": "audio/mpeg",
+        "Content-Type": tts.mime,
         "Cache-Control": "private, no-store",
         "X-Cache": "SKIP",
         "X-Start-Para": String(slice.startPara),
@@ -146,12 +147,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
   );
   if (!chap.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const cached = await pool.query<{ data: Buffer }>(
-    `SELECT data FROM audio_cache WHERE book_id = $1 AND chapter_idx = $2 AND part_idx = $3 AND voice = $4`,
+  const cached = await pool.query<{ data: Buffer; mime: string }>(
+    `SELECT data, COALESCE(mime, 'audio/mpeg') AS mime FROM audio_cache WHERE book_id = $1 AND chapter_idx = $2 AND part_idx = $3 AND voice = $4`,
     [bookId, ch, partIdx, voice]
   );
   if (cached.rows.length) {
-    return audioResponse(req, cached.rows[0].data as Buffer, "audio/mpeg", true);
+    return audioResponse(req, cached.rows[0].data as Buffer, cached.rows[0].mime, true);
   }
 
   const parts = chunkForTts(chap[0].text);
@@ -160,20 +161,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
   // Dedupe concurrent synthesis for the same cache key. The second caller
   // awaits the in-flight Promise and both get the same bytes.
   const inFlightKey = `${bookId}\0${ch}\0${partIdx}\0${voice}`;
-  let wav: Buffer;
+  let tts: TtsResult;
   try {
     let hit = inFlight.get(inFlightKey);
     if (!hit) {
       const text = parts[partIdx].text;
       const promise = (async () => {
         try {
-          const audio = await synthesize(text, voice);
+          const result = await synthesize(text, voice);
           await pool.query(
-            `INSERT INTO audio_cache (book_id, chapter_idx, part_idx, voice, data) VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (book_id, chapter_idx, part_idx, voice) DO UPDATE SET data = EXCLUDED.data, created_at = now()`,
-            [bookId, ch, partIdx, voice, audio]
+            `INSERT INTO audio_cache (book_id, chapter_idx, part_idx, voice, data, mime) VALUES ($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (book_id, chapter_idx, part_idx, voice) DO UPDATE SET data = EXCLUDED.data, mime = EXCLUDED.mime, created_at = now()`,
+            [bookId, ch, partIdx, voice, result.data, result.mime]
           );
-          return audio;
+          return result;
         } finally {
           inFlight.delete(inFlightKey);
         }
@@ -181,8 +182,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ book
       hit = { promise };
       inFlight.set(inFlightKey, hit);
     }
-    wav = await hit.promise;
+    tts = await hit.promise;
   } catch (e: any) { return NextResponse.json({ error: e.message || "TTS failed" }, { status: 502 }); }
 
-  return audioResponse(req, wav, "audio/mpeg", false);
+  return audioResponse(req, tts.data, tts.mime, false);
 }

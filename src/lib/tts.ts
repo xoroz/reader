@@ -94,7 +94,7 @@ const ROMANTIC_INSTRUCTIONS =
   "Linger on emphasis words. Take noticeable pauses at punctuation, longer at paragraph breaks. " +
   "Never race. No commentary — read the text verbatim.";
 
-export async function synthesize(text: string, _voice: TtsVoice): Promise<Buffer> {
+export async function synthesize(text: string, _voice: TtsVoice): Promise<{ data: Buffer; mime: string }> {
   const openaiKey = process.env.OPENAI_API_KEY;
   const orKey = process.env.OPENROUTER_API_KEY_TTS || process.env.OPENROUTER_API_KEY;
 
@@ -110,7 +110,7 @@ export async function synthesize(text: string, _voice: TtsVoice): Promise<Buffer
         signal: ctl.signal,
       });
       if (!res.ok) { const d = await res.text().catch(() => ""); throw new Error(`TTS ${res.status}: ${d.slice(0, 300)}`); }
-      return Buffer.from(await res.arrayBuffer());
+      return { data: Buffer.from(await res.arrayBuffer()), mime: "audio/mpeg" };
     } finally {
       clearTimeout(to);
     }
@@ -156,7 +156,7 @@ export async function synthesize(text: string, _voice: TtsVoice): Promise<Buffer
         }
       }
       const pcm = Buffer.concat(chunks);
-      return wrapWav(pcm, 24000, 1, 16);
+      return { data: wrapWav(pcm, 24000, 1, 16), mime: "audio/wav" };
     } finally {
       clearTimeout(to);
     }
