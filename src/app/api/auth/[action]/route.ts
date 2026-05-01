@@ -13,7 +13,7 @@ function clientIP(req: NextRequest): string {
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ action: string }> }) {
   const { action } = await params;
-  const config = auth.getConfig({ basePath: "/Reader", appName: "Reader", authBasePath: "/Reader/api" });
+  const config = auth.getConfig({ basePath: "/reader", appName: "Reader", authBasePath: "/reader/api" });
   if (action === "login") return new NextResponse(auth.loginPageHTML(config), { headers: { "Content-Type": "text/html" } });
   if (action === "logout") {
     const fh = req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host;
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ acti
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ action: string }> }) {
   const { action } = await params;
-  const config = auth.getConfig({ basePath: "/Reader", appName: "Reader", authBasePath: "/Reader/api" });
+  const config = auth.getConfig({ basePath: "/reader", appName: "Reader", authBasePath: "/reader/api" });
 
   if (action === "send-code") {
     const body = await req.json().catch(() => ({}));

@@ -34,8 +34,8 @@ const CSP = [
 const nextConfig: NextConfig = {
 
   serverExternalPackages: ["shared-auth", "shared-ai", "pg", "pdf-parse", "epub2", "mammoth", "adm-zip"],
-  basePath: "/Reader",
-  env: { NEXT_PUBLIC_BASE_PATH: "/Reader" },
+  basePath: "/reader",
+  env: { NEXT_PUBLIC_BASE_PATH: "/reader" },
   typescript: { ignoreBuildErrors: true },
   experimental: { serverActions: { bodySizeLimit: "250mb" } },
   async headers() {

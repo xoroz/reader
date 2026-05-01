@@ -5,7 +5,7 @@ import { verifySessionEdge } from "shared-auth/edge";
 
 const SESSION_SECRET = process.env.OTP_SESSION_SECRET || "";
 const COOKIE_NAME = "app_otp_session";
-const BASE_PATH = "/Reader";
+const BASE_PATH = "/reader";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
