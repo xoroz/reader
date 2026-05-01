@@ -95,15 +95,22 @@ const ROMANTIC_INSTRUCTIONS =
   "Never race. No commentary — read the text verbatim.";
 
 export async function synthesize(text: string, _voice: TtsVoice): Promise<Buffer> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("OPENAI_API_KEY not set");
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  const key = openaiKey || orKey;
+  if (!key) throw new Error("No TTS API key: set OPENAI_API_KEY or OPENROUTER_API_KEY");
+
+  const useOpenRouter = !openaiKey && !!orKey;
+  const baseUrl = useOpenRouter
+    ? "https://openrouter.ai/api/v1/audio/speech"
+    : "https://api.openai.com/v1/audio/speech";
   // gpt-4o-mini-tts supports the `instructions` param for tone steering.
   // tts-1/tts-1-hd don't — they'd ignore it and sound generic.
-  const model = process.env.READER_TTS_MODEL || "gpt-4o-mini-tts";
+  const model = process.env.READER_TTS_MODEL || (useOpenRouter ? "openai/gpt-4o-mini-tts" : "gpt-4o-mini-tts");
   const ctl = new AbortController();
   const to = setTimeout(() => ctl.abort(), 60_000);
   try {
-    const res = await fetch("https://api.openai.com/v1/audio/speech", {
+    const res = await fetch(baseUrl, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${key}`,
