@@ -16,8 +16,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ acti
   const config = auth.getConfig({ basePath: "/reader", appName: "Reader", authBasePath: "/reader/api" });
   if (action === "login") return new NextResponse(auth.loginPageHTML(config), { headers: { "Content-Type": "text/html" } });
   if (action === "logout") {
-    const fh = req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host;
-    const fp = req.headers.get("x-forwarded-proto") || "https";
+    // X-Forwarded-* may carry one value per proxy hop; take the first.
+    const firstHop = (v: string | null) => v?.split(",")[0].trim() || null;
+    const fh = firstHop(req.headers.get("x-forwarded-host")) || req.headers.get("host") || req.nextUrl.host;
+    const fp = firstHop(req.headers.get("x-forwarded-proto")) || "https";
     const res = NextResponse.redirect(`${fp}://${fh}/`);
     res.cookies.delete({ name: config.cookieName, path: "/" });
     return res;

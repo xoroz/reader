@@ -34,8 +34,13 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/api/") || request.headers.get("accept")?.includes("application/json")) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
-    const fwdHost = request.headers.get("x-forwarded-host") || request.headers.get("host") || request.nextUrl.host;
-    const fwdProto = request.headers.get("x-forwarded-proto") || "https";
+    // X-Forwarded-* are comma-separated lists when more than one proxy is in
+    // the chain. Behind Pangolin/traefik plus Apache we get
+    // "apps.texngo.it, apps.texngo.it", which is not a valid URL host.
+    // Take the first hop only.
+    const firstHop = (v: string | null) => v?.split(",")[0].trim() || null;
+    const fwdHost = firstHop(request.headers.get("x-forwarded-host")) || request.headers.get("host") || request.nextUrl.host;
+    const fwdProto = firstHop(request.headers.get("x-forwarded-proto")) || "https";
     return NextResponse.redirect(`${fwdProto}://${fwdHost}${BASE_PATH}/api/auth/login`);
   }
   const res = NextResponse.next();

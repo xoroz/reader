@@ -86,8 +86,10 @@ function authDocBody(req: NextRequest) {
 
 // Build a canonical https://host/Reader base URL from forwarded headers.
 export function publicBase(req: NextRequest): string {
-  const proto = req.headers.get("x-forwarded-proto") || "https";
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost";
+  // X-Forwarded-* may carry one value per proxy hop; take the first.
+  const firstHop = (v: string | null) => v?.split(",")[0].trim() || null;
+  const proto = firstHop(req.headers.get("x-forwarded-proto")) || "https";
+  const host = firstHop(req.headers.get("x-forwarded-host")) || req.headers.get("host") || "localhost";
   return `${proto}://${host}/Reader`;
 }
 

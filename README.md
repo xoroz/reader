@@ -86,7 +86,7 @@ mkdir -p ~/projects/shared-ai
 ### 4) App install
 
 ```bash
-cp -r ~/repos/reader ~/projects/reader
+git clone https://github.com/xoroz/reader ~/projects/reader
 mkdir -p ~/projects/reader/uploads
 cd ~/projects/reader
 cp ecosystem.config.example.js ecosystem.config.js
