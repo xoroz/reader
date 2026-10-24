@@ -159,3 +159,17 @@ See `sql/001_init.sql`.
 ## License
 
 MIT
+
+<!-- install-auth:start -->
+## Install and auth modes
+
+```bash
+./install.sh                # standalone
+./install.sh --pangolin     # same, plus prints the Apache gate for Pangolin-only access
+```
+`install.sh` is idempotent: dependencies, config templates (never overwrites `.env` / ecosystem files), build, pm2 start.
+
+**Auth works both ways.** Behind Pangolin (SSO on the whole `apps.texngo.it` resource) Apache proves the request with the `X-Pangolin-Proof` header and forwards the verified identity as `X-SSO-Verified: 1` / `X-SSO-Email`; the app then needs no login. Without Pangolin there is no such header, so the app falls back to its own login: email OTP via shared-auth (OTP_SESSION_SECRET in ecosystem.config.js); OPDS/app-password clients always use their own credentials.
+Apache strips client-supplied `X-SSO-*` headers, so they cannot be forged through port 81. Local shell users can still reach `127.0.0.1:3017` directly.
+Production path: `/reader` on `apps.texngo.it`. Auto-deploy helper: `./update.sh` (shared logic in `~/scripts/app-update.sh`).
+<!-- install-auth:end -->

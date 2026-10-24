@@ -69,6 +69,11 @@ export async function authenticateSync(req: NextRequest): Promise<SyncAuth> {
   // requiring a bearer / basic header. This lets browser requests — which
   // already passed through middleware's cookie check — reuse the logged-in
   // identity for server-side calls like /api/sync/ai/explain.
+  // Pangolin SSO (Apache sets these only for requests carrying the Pangolin proof).
+  if (req.headers.get("x-sso-verified") === "1") {
+    const sso = (req.headers.get("x-sso-email") || "").toLowerCase();
+    if (sso) return { ok: true, email: sso };
+  }
   const sessionCookie = req.cookies.get("app_otp_session")?.value;
   if (sessionCookie) {
     const session = verifySession(sessionCookie, process.env.OTP_SESSION_SECRET || "");

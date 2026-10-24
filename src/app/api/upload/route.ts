@@ -81,7 +81,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const token = req.cookies.get(COOKIE_NAME)?.value || "";
-  const email = await verifySession(token);
+  const sso = req.headers.get("x-sso-verified") === "1" ? (req.headers.get("x-sso-email") || "").toLowerCase() : "";
+  const email = sso || (await verifySession(token));
   if (!email) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   // Cap uploads at 12 / hour / user. A 60 MB file would otherwise let a
   // single account fill the disk in minutes; this is the cheapest defence.

@@ -30,7 +30,13 @@ export async function middleware(request: NextRequest) {
 
   const token = request.cookies.get(COOKIE_NAME)?.value;
   const session = token ? await verifySessionEdge(token, SESSION_SECRET) : null;
-  if (!session) {
+  // Pangolin SSO: Apache sets X-SSO-Verified/X-SSO-Email only for requests that carried the Pangolin proof.
+  const ssoEmail = request.headers.get("x-sso-verified") === "1" ? (request.headers.get("x-sso-email") || "").toLowerCase() : "";
+  const identity = session?.email ? String(session.email) : ssoEmail;
+  const fwd = new Headers(request.headers);
+  fwd.delete("x-user-email");
+  if (identity) fwd.set("x-user-email", identity);
+  if (!identity) {
     if (pathname.startsWith("/api/") || request.headers.get("accept")?.includes("application/json")) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
@@ -43,8 +49,8 @@ export async function middleware(request: NextRequest) {
     const fwdProto = firstHop(request.headers.get("x-forwarded-proto")) || "https";
     return NextResponse.redirect(`${fwdProto}://${fwdHost}${BASE_PATH}/api/auth/login`);
   }
-  const res = NextResponse.next();
-  res.headers.set("x-user-email", session.email);
+  const res = NextResponse.next({ request: { headers: fwd } });
+  res.headers.set("x-user-email", identity);
   // Mint a CSRF double-submit cookie if missing. Kept non-HttpOnly so client
   // JS can echo it in the X-CSRF-Token header on mutating requests. Runs in
   // the Edge runtime, so we inline the token generation rather than importing
